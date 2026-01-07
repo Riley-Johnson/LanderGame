@@ -1,0 +1,14 @@
+{
+  "id": 2,
+  "name": "Level 2",
+  "description": "Land while moving horizontally at 15 m/s. Use rotation and thrust to stabilize.",
+  "scenario": {
+    "x": -50,
+    "y": 100,
+    "vx": 15,
+    "vy": -10,
+    "angle": 0,
+    "angularVelocity": 0,
+    "fuel": 0.5
+  }
+}
