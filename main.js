@@ -87,7 +87,8 @@ async function init() {
           <block type="get_angular_velocity"></block>
         </category>
         <category name="Variables" colour="330" custom="VARIABLE"></category>
-        <category name="Time" colour="290">
+        <category name="Functions" colour="290" custom="PROCEDURE"></category>
+        <category name="Time" colour="190">
           <block type="wait_seconds">
             <field name="SECONDS">1</field>
           </block>
