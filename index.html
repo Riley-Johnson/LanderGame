@@ -1,10 +1,48 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>$Title$</title>
-</head>
-<body>
-$END$
-</body>
+  <head>
+    <meta charset="utf-8">
+    <title>Python Lander Game</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <!-- Level Select Menu -->
+    <div id="levelSelectOverlay">
+      <div id="levelSelectContainer">
+        <h1 id="gameTitle">lander game</h1>
+        <div id="levelList">
+          <!-- Levels will be dynamically inserted here -->
+        </div>
+      </div>
+    </div>
+
+    <button id="runButton">Run Code</button>
+    <button id="menuButton">Menu</button>
+    <button id="saveButton">Save Blocks</button>
+    <button id="loadButton">Load Blocks</button>
+    <input type="file" id="fileInput" accept=".json" style="display: none;">
+    <div id="blocklyDiv"></div>
+    <div id="rightPanel">
+      <div id="gameContainer">
+        <canvas id="game" width="1200" height="800"></canvas>
+      </div>
+      <div id="consoleContainer">
+        <div id="consoleHeader">
+          Console Output
+          <button id="clearConsole">Clear</button>
+        </div>
+        <div id="consoleContent"></div>
+      </div>
+    </div>
+
+    <!-- Load libraries -->
+    <script src="https://unpkg.com/blockly@10.4.3/blockly.min.js"></script>
+    <script src="https://unpkg.com/blockly@10.4.3/python_compressed.js"></script>
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
+
+    <!-- Load our logic -->
+    <script src="blocks.js?v=6"></script>
+    <script src="main.js?v=21"></script>
+  </body>
 </html>
