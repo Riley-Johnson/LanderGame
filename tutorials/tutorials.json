@@ -1,0 +1,9 @@
+{
+  "tutorials": [
+    "getting-started.json",
+    "sensors.json",
+    "controls.json",
+    "variables.json",
+    "functions.json"
+  ]
+}

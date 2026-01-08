@@ -1,0 +1,6 @@
+{
+  "id": "controls",
+  "title": "Control Blocks",
+  "description": "Master throttle and rotation controls",
+  "contentFile": "controls.html"
+}

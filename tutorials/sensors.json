@@ -1,0 +1,6 @@
+{
+  "id": "sensors",
+  "title": "Using Sensors",
+  "description": "Learn about altitude, velocity, and other sensor blocks",
+  "contentFile": "sensors.html"
+}

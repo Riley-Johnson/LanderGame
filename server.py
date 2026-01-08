@@ -9,7 +9,7 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
         # Required headers for SharedArrayBuffer
         self.send_header('Cross-Origin-Opener-Policy', 'same-origin')
         # Use 'credentialless' to allow loading from CDNs without CORP headers
-        self.send_header('Cross-Origin-Embedder-Policy', 'credentialless')
+        self.send_header('Cross-Origin-Embedder-Poliy', 'credentialless')
         # Disable caching for development
         self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
         self.send_header('Pragma', 'no-cache')

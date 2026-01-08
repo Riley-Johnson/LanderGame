@@ -17,8 +17,34 @@
       </div>
     </div>
 
+    <!-- Tutorial Overlay -->
+    <div id="tutorialOverlay" style="display: none;">
+      <div id="tutorialContainer">
+        <div id="tutorialHeader">
+          <h2>📚 Tutorials</h2>
+          <button id="closeTutorial">✕</button>
+        </div>
+        <div id="tutorialList">
+          <!-- Tutorials will be dynamically inserted here -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Tutorial Content Viewer -->
+    <div id="tutorialViewer" style="display: none;">
+      <div id="tutorialViewerContainer">
+        <div id="tutorialViewerHeader">
+          <button id="backToTutorials">← Back</button>
+          <h2 id="tutorialTitle"></h2>
+          <button id="closeTutorialViewer">✕</button>
+        </div>
+        <div id="tutorialContent"></div>
+      </div>
+    </div>
+
     <button id="runButton">Run Code</button>
     <button id="menuButton">Menu</button>
+    <button id="tutorialButton">📖</button>
     <button id="saveButton">Save Blocks</button>
     <button id="loadButton">Load Blocks</button>
     <input type="file" id="fileInput" accept=".json" style="display: none;">
@@ -42,7 +68,7 @@
     <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
 
     <!-- Load our logic -->
-    <script src="blocks.js?v=6"></script>
-    <script src="main.js?v=22"></script>
+    <script src="blocks.js?v=15"></script>
+    <script src="main.js?v=40"></script>
   </body>
 </html>

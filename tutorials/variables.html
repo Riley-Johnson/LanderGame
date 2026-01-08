@@ -1,0 +1,29 @@
+<h3>Variables</h3>
+
+<p>Variables let you remember values between timesteps (frames).</p>
+
+<h3>Creating Variables</h3>
+<ol>
+  <li>Click "Variables" in the toolbox</li>
+  <li>Click "Create variable"</li>
+  <li>Give it a name (e.g., "landing_mode")</li>
+</ol>
+
+<h3>Using Variables</h3>
+<p>Variables persist between timesteps, so you can:</p>
+<ul>
+  <li>Count how many times something happened</li>
+  <li>Remember if you've entered a landing phase</li>
+  <li>Track time elapsed</li>
+  <li>Store calculated values</li>
+</ul>
+
+<h3>Example</h3>
+<p>Track landing sequence:</p>
+<p>
+  <em>
+    If altitude &lt; 100 and landing_mode = 0:<br>
+    &nbsp;&nbsp;set landing_mode to 1<br>
+    &nbsp;&nbsp;print "Starting landing sequence"
+  </em>
+</p>

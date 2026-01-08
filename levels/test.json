@@ -1,11 +1,11 @@
 {
-  "id": 1,
-  "name": "Level 1",
-  "description": "Simple vertical landing from 100m.",
+  "id": 0,
+  "name": "Test",
+  "description": "Testing level",
   "scenario": {
     "x": 0,
-    "y": 100,
-    "vx": 0,
+    "y": 1000,
+    "vx": 50,
     "vy": -10,
     "angle": 0,
     "angularVelocity": 0,

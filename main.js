@@ -1,6 +1,7 @@
 let workspace, pyodide, ctx, gameStarted = false;
 let currentLevel = null;
 let LEVELS = []; // Will be loaded from files
+let TUTORIALS = []; // Will be loaded from files
 
 // Default scenario config (all values in SI units)
 const DEFAULT_SCENARIO = {
@@ -47,6 +48,38 @@ async function loadLevels() {
   }
 }
 
+// Load all tutorials from JSON files
+async function loadTutorials() {
+  try {
+    // Load the manifest file
+    const manifestResponse = await fetch('tutorials/tutorials.json');
+    const manifest = await manifestResponse.json();
+
+    // Load each tutorial file (metadata + HTML content)
+    const tutorialPromises = manifest.tutorials.map(async (filename) => {
+      const response = await fetch(`tutorials/${filename}`);
+      const tutorialData = await response.json();
+
+      // Load the HTML content from separate file
+      const contentResponse = await fetch(`tutorials/${tutorialData.contentFile}`);
+      const htmlContent = await contentResponse.text();
+
+      // Combine metadata with content
+      return {
+        ...tutorialData,
+        content: htmlContent
+      };
+    });
+
+    TUTORIALS = await Promise.all(tutorialPromises);
+    console.log(`Loaded ${TUTORIALS.length} tutorials`);
+    return TUTORIALS;
+  } catch (err) {
+    console.error("Error loading tutorials:", err);
+    return [];
+  }
+}
+
 // Console output handling
 function addToConsole(text) {
   const consoleContent = document.getElementById('consoleContent');
@@ -59,8 +92,9 @@ function addToConsole(text) {
 
 // main JS entry
 async function init() {
-  // Load levels first
+  // Load levels and tutorials
   await loadLevels();
+  await loadTutorials();
 
   workspace = Blockly.inject('blocklyDiv', {
     toolbox: `
@@ -73,17 +107,22 @@ async function init() {
               </shadow>
             </value>
           </block>
-          <block type="rotate_left"></block>
-          <block type="rotate_right"></block>
+          <block type="set_rcs">
+            <value name="VALUE">
+              <shadow type="math_number">
+                <field name="NUM">0</field>
+              </shadow>
+            </value>
+          </block>
         </category>
         <category name="Sensors" colour="120">
           <block type="get_throttle"></block>
+          <block type="get_rcs"></block>
           <block type="get_altitude"></block>
           <block type="get_velocity"></block>
           <block type="get_horizontal_position"></block>
           <block type="get_horizontal_velocity"></block>
           <block type="get_angle"></block>
-          <block type="get_angle_degrees"></block>
           <block type="get_angular_velocity"></block>
         </category>
         <category name="Variables" colour="330" custom="VARIABLE"></category>
@@ -127,6 +166,10 @@ async function init() {
           <block type="math_radians"></block>
           <block type="math_degrees"></block>
           <block type="math_abs"></block>
+          <block type="math_square"></block>
+          <block type="math_sqrt"></block>
+          <block type="math_round"></block>
+          <block type="angle_error"></block>
           <block type="math_pi"></block>
         </category>
         <category name="Text" colour="160">
@@ -176,7 +219,7 @@ async function init() {
     }
   });
 
-  const physicsCode = await fetch('physics.py?v=6').then(r => r.text());
+  const physicsCode = await fetch('physics.py?v=9').then(r => r.text());
   await pyodide.runPythonAsync(physicsCode);
 
   console.log("Pyodide loaded and ready");
@@ -194,6 +237,46 @@ async function init() {
   document.getElementById("menuButton").addEventListener("click", () => {
     document.getElementById('levelSelectOverlay').style.display = 'flex';
     addToConsole("Returning to level select menu...");
+  });
+
+  // Tutorial button handler
+  document.getElementById("tutorialButton").addEventListener("click", () => {
+    document.getElementById('tutorialOverlay').style.display = 'flex';
+  });
+
+  // Close tutorial overlay
+  document.getElementById("closeTutorial").addEventListener("click", () => {
+    document.getElementById('tutorialOverlay').style.display = 'none';
+  });
+
+  // Close tutorial viewer
+  document.getElementById("closeTutorialViewer").addEventListener("click", () => {
+    document.getElementById('tutorialViewer').style.display = 'none';
+  });
+
+  // Back to tutorials button
+  document.getElementById("backToTutorials").addEventListener("click", () => {
+    document.getElementById('tutorialViewer').style.display = 'none';
+    document.getElementById('tutorialOverlay').style.display = 'flex';
+  });
+
+  // Populate tutorial list
+  const tutorialList = document.getElementById('tutorialList');
+  TUTORIALS.forEach(tutorial => {
+    const tutorialItem = document.createElement('div');
+    tutorialItem.className = 'tutorialItem';
+    tutorialItem.innerHTML = `
+      <div class="tutorialItemTitle">${tutorial.title}</div>
+      <div class="tutorialItemDescription">${tutorial.description}</div>
+    `;
+    tutorialItem.addEventListener('click', () => {
+      // Show tutorial content
+      document.getElementById('tutorialTitle').textContent = tutorial.title;
+      document.getElementById('tutorialContent').innerHTML = tutorial.content;
+      document.getElementById('tutorialOverlay').style.display = 'none';
+      document.getElementById('tutorialViewer').style.display = 'flex';
+    });
+    tutorialList.appendChild(tutorialItem);
   });
 
   // Save blocks to JSON file
@@ -294,15 +377,15 @@ async function init() {
       pyodide.runPythonAsync(`set_throttle(${currentThrottle})`).catch(err => console.error(err));
     }
 
-    // A or Left Arrow: Rotate right (reversed for intuitive control)
+    // A or Left Arrow: Rotate CW (positive RCS)
+    // D or Right Arrow: Rotate CCW (negative RCS)
+    let rcsValue = 0;
     if (keysPressed["a"] || keysPressed["A"] || keysPressed["ArrowLeft"]) {
-      pyodide.runPythonAsync('rotate_right()').catch(err => console.error(err));
+      rcsValue = 1.0;  // Clockwise
+    } else if (keysPressed["d"] || keysPressed["D"] || keysPressed["ArrowRight"]) {
+      rcsValue = -1.0;  // Counterclockwise
     }
-
-    // D or Right Arrow: Rotate left (reversed for intuitive control)
-    if (keysPressed["d"] || keysPressed["D"] || keysPressed["ArrowRight"]) {
-      pyodide.runPythonAsync('rotate_left()').catch(err => console.error(err));
-    }
+    pyodide.runPythonAsync(`set_rcs(${rcsValue})`).catch(err => console.error(err));
   }, 16);  // Run at ~60 FPS
 
   // run button handler
@@ -353,6 +436,12 @@ async function init() {
       });
       userCode = filteredLines.join('\n');
     }
+
+    // POST-PROCESS: Remove Blockly's degree conversions to force radians
+    userCode = userCode.replace(/\s*\/\s*math\.pi\s*\*\s*180/g, '');  // Remove "/ math.pi * 180"
+    userCode = userCode.replace(/\s*\*\s*180\s*\/\s*math\.pi/g, '');  // Remove "* 180 / math.pi"
+    userCode = userCode.replace(/\s*\*\s*math\.pi\s*\/\s*180/g, '');  // Remove "* math.pi / 180"
+    userCode = userCode.replace(/\s*\/\s*180\s*\*\s*math\.pi/g, '');  // Remove "/ 180 * math.pi"
 
     // If there's no code, add a pass statement to avoid IndentationError
     userCode = userCode.trim() ? userCode : 'pass';
@@ -429,7 +518,7 @@ function generateChunkStars(chunkX, chunkY) {
     const x = chunkX * CHUNK_SIZE + seededRandom(seed) * CHUNK_SIZE;
     const y = chunkY * CHUNK_SIZE + seededRandom(seed + 1) * CHUNK_SIZE;
     const size = seededRandom(seed + 2) * 1.5 + 0.5;
-    const parallax = seededRandom(seed + 3) * 0.4 + 0.3;
+    const parallax = seededRandom(seed + 3) * 0.4 + 0.3; // 0.3-0.7 parallax
 
     stars.push({ x, y, size, parallax });
   }
@@ -439,7 +528,7 @@ function generateChunkStars(chunkX, chunkY) {
 
 // Update visible stars based on camera position
 function updateStars(cameraX, cameraY) {
-  const scaleX = 3;
+  const scaleX = 8;  // Match scaleY so movement looks consistent
   const scaleY = 8;
 
   // Calculate visible world area with margins
@@ -513,7 +602,7 @@ function update() {
     const landerScreenY = 400;  // Center of 800px canvas
 
     // Scaling constants
-    const scaleX = 3;  // 3 pixels per meter horizontally
+    const scaleX = 8;  // 8 pixels per meter horizontally
     const scaleY = 8;  // 8 pixels per meter vertically
 
     // debug: log state occasionally
@@ -525,13 +614,15 @@ function update() {
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, 1200, 800);
 
-    // Draw ALL background stars with parallax effect from cached chunks
+    // Draw ALL background stars with parallax on both axes
     ctx.fillStyle = "#fff";
     for (const [chunkId, chunkStars] of starCache) {
       chunkStars.forEach(star => {
-        // Convert star world position to screen position with parallax
-        const starScreenX = landerScreenX + ((star.x - cameraX) * scaleX * star.parallax);
-        const starScreenY = landerScreenY - ((star.y - cameraY) * scaleY * star.parallax);
+        // Both X and Y have same parallax scaling for zoom effect
+        const offsetX = (star.x - cameraX) * scaleX * star.parallax;
+        const offsetY = (star.y - cameraY) * scaleY * star.parallax;
+        const starScreenX = landerScreenX + offsetX;
+        const starScreenY = landerScreenY - offsetY;
 
         // Draw all stars
         ctx.beginPath();
@@ -563,14 +654,14 @@ function update() {
     // Only draw RCS and throttle effects if not crashed
     if (!crashed) {
       // Draw RCS exhaust effects
-      const rcsLeft = state.rcs_left || false;
-      const rcsRight = state.rcs_right || false;
+      const rcsValue = state.rcs_value || 0;
 
-      if (rcsLeft) {
-        // Left RCS fires from left side (pushes counterclockwise)
-        const rcsLength = 8 + Math.random() * 4;
-        const rcsWidth = 3;
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+      if (rcsValue < 0) {
+        // Negative RCS = CCW rotation (fires from left side)
+        const rcsMagnitude = Math.abs(rcsValue);
+        const rcsLength = (8 + Math.random() * 4) * rcsMagnitude;
+        const rcsWidth = 3 * rcsMagnitude;
+        ctx.fillStyle = `rgba(255, 255, 255, ${0.8 * rcsMagnitude})`;
         ctx.beginPath();
         ctx.moveTo(-14, -5);  // Left side of lander
         ctx.lineTo(-14 - rcsLength, -5 - rcsWidth);
@@ -579,11 +670,12 @@ function update() {
         ctx.fill();
       }
 
-      if (rcsRight) {
-        // Right RCS fires from right side (pushes clockwise)
-        const rcsLength = 8 + Math.random() * 4;
-        const rcsWidth = 3;
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+      if (rcsValue > 0) {
+        // Positive RCS = CW rotation (fires from right side)
+        const rcsMagnitude = Math.abs(rcsValue);
+        const rcsLength = (8 + Math.random() * 4) * rcsMagnitude;
+        const rcsWidth = 3 * rcsMagnitude;
+        ctx.fillStyle = `rgba(255, 255, 255, ${0.8 * rcsMagnitude})`;
         ctx.beginPath();
         ctx.moveTo(14, -5);  // Right side of lander
         ctx.lineTo(14 + rcsLength, -5 - rcsWidth);
@@ -779,7 +871,8 @@ function update() {
 
     // Draw fuel with color coding
     const fuelKg = state.fuel || 0;
-    const fuelPercent = (fuelKg / 0.5) * 100; // 0.5 kg is max fuel
+    const initialFuel = state.initial_fuel || 0.5;
+    const fuelPercent = (fuelKg / initialFuel) * 100;
     if (fuelPercent > 30) {
       ctx.fillStyle = "#0f0";  // Green when fuel is good
     } else if (fuelPercent > 10) {

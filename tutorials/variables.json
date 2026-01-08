@@ -1,0 +1,6 @@
+{
+  "id": "variables",
+  "title": "Using Variables",
+  "description": "Store and track values between timesteps",
+  "contentFile": "variables.html"
+}

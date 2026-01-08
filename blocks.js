@@ -1,21 +1,5 @@
 Blockly.defineBlocksWithJsonArray([
   {
-    "type": "rotate_left",
-    "message0": "rotate left",
-    "previousStatement": null,
-    "nextStatement": null,
-    "colour": 230,
-    "tooltip": "Fire RCS to rotate counterclockwise"
-  },
-  {
-    "type": "rotate_right",
-    "message0": "rotate right",
-    "previousStatement": null,
-    "nextStatement": null,
-    "colour": 230,
-    "tooltip": "Fire RCS to rotate clockwise"
-  },
-  {
     "type": "get_altitude",
     "message0": "altitude (m)",
     "output": "Number",
@@ -49,13 +33,6 @@ Blockly.defineBlocksWithJsonArray([
     "output": "Number",
     "colour": 120,
     "tooltip": "Get current angle in radians (0 = up, + = CCW)"
-  },
-  {
-    "type": "get_angle_degrees",
-    "message0": "angle (degrees)",
-    "output": "Number",
-    "colour": 120,
-    "tooltip": "Get current angle in degrees (0 = up, + = CCW)"
   },
   {
     "type": "get_angular_velocity",
@@ -173,6 +150,48 @@ Blockly.defineBlocksWithJsonArray([
     "output": "Number",
     "colour": 230,
     "tooltip": "Pi constant (3.14159...)"
+  },
+  {
+    "type": "math_round",
+    "message0": "round %1 to %2 digits",
+    "args0": [
+      {"type": "input_value", "name": "NUM", "check": "Number"},
+      {"type": "input_value", "name": "DIGITS", "check": "Number"}
+    ],
+    "output": "Number",
+    "colour": 230,
+    "tooltip": "Round a number to specified decimal places"
+  },
+  {
+    "type": "angle_error",
+    "message0": "angle error from %1 to %2",
+    "args0": [
+      {"type": "input_value", "name": "CURRENT", "check": "Number"},
+      {"type": "input_value", "name": "TARGET", "check": "Number"}
+    ],
+    "output": "Number",
+    "colour": 230,
+    "tooltip": "Calculate shortest angular error wrapped to (-π, π)"
+  },
+  {
+    "type": "math_square",
+    "message0": "square %1",
+    "args0": [
+      {"type": "input_value", "name": "NUM", "check": "Number"}
+    ],
+    "output": "Number",
+    "colour": 230,
+    "tooltip": "Square a number (x²)"
+  },
+  {
+    "type": "math_sqrt",
+    "message0": "√ %1",
+    "args0": [
+      {"type": "input_value", "name": "NUM", "check": "Number"}
+    ],
+    "output": "Number",
+    "colour": 230,
+    "tooltip": "Square root of a number"
   }
 ]);
 
@@ -199,6 +218,28 @@ Blockly.Blocks['get_throttle'] = {
   }
 };
 
+Blockly.Blocks['set_rcs'] = {
+  init: function() {
+    this.appendValueInput('VALUE')
+        .setCheck('Number')
+        .appendField('set RCS to');
+    this.setPreviousStatement(true, null);
+    this.setNextStatement(true, null);
+    this.setColour(230);
+    this.setTooltip('Set RCS thruster power (-1.0 to 1.0, negative = CCW, positive = CW)');
+  }
+};
+
+Blockly.Blocks['get_rcs'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField('RCS level');
+    this.setOutput(true, 'Number');
+    this.setColour(120);
+    this.setTooltip('Get current RCS level (-1.0 to 1.0)');
+  }
+};
+
 Blockly.Python['set_throttle'] = function(block) {
   const value = Blockly.Python.valueToCode(block, 'VALUE', Blockly.Python.ORDER_NONE) || '0';
   return 'set_throttle(' + value + ')\n';
@@ -208,12 +249,13 @@ Blockly.Python['get_throttle'] = function(block) {
   return ['get_throttle()', Blockly.Python.ORDER_FUNCTION_CALL];
 };
 
-Blockly.Python['rotate_left'] = function(block) {
-  return 'rotate_left()\n';
+Blockly.Python['set_rcs'] = function(block) {
+  const value = Blockly.Python.valueToCode(block, 'VALUE', Blockly.Python.ORDER_NONE) || '0';
+  return 'set_rcs(' + value + ')\n';
 };
 
-Blockly.Python['rotate_right'] = function(block) {
-  return 'rotate_right()\n';
+Blockly.Python['get_rcs'] = function(block) {
+  return ['get_rcs()', Blockly.Python.ORDER_FUNCTION_CALL];
 };
 
 Blockly.Python['wait_seconds'] = function(block) {
@@ -241,10 +283,6 @@ Blockly.Python['get_angle'] = function(block) {
   return ['get_angle()', Blockly.Python.ORDER_FUNCTION_CALL];
 };
 
-Blockly.Python['get_angle_degrees'] = function(block) {
-  return ['get_angle_degrees()', Blockly.Python.ORDER_FUNCTION_CALL];
-};
-
 Blockly.Python['get_angular_velocity'] = function(block) {
   return ['get_angular_velocity()', Blockly.Python.ORDER_FUNCTION_CALL];
 };
@@ -257,32 +295,42 @@ Blockly.Python['get_time'] = function(block) {
   return ['get_time()', Blockly.Python.ORDER_FUNCTION_CALL];
 };
 
+// Trig generators - will be overridden in main.js to ensure radians
 Blockly.Python['math_trig'] = function(block) {
-  const num = Blockly.Python.valueToCode(block, 'NUM', Blockly.Python.ORDER_FUNCTION_CALL) || '0';
+  const num = Blockly.Python.valueToCode(block, 'NUM', Blockly.Python.ORDER_NONE) || '0';
   const op = block.getFieldValue('OP');
   const funcMap = {
     'SIN': 'math.sin',
     'COS': 'math.cos',
     'TAN': 'math.tan'
   };
-  return [`${funcMap[op]}(${num})`, Blockly.Python.ORDER_FUNCTION_CALL];
+  const code = funcMap[op] + '(' + num + ')';
+  return [code, Blockly.Python.ORDER_FUNCTION_CALL];
 };
 
 Blockly.Python['math_trig_inverse'] = function(block) {
-  const num = Blockly.Python.valueToCode(block, 'NUM', Blockly.Python.ORDER_FUNCTION_CALL) || '0';
+  const num = Blockly.Python.valueToCode(block, 'NUM', Blockly.Python.ORDER_NONE) || '0';
   const op = block.getFieldValue('OP');
   const funcMap = {
     'ASIN': 'math.asin',
     'ACOS': 'math.acos',
     'ATAN': 'math.atan'
   };
-  return [`${funcMap[op]}(${num})`, Blockly.Python.ORDER_FUNCTION_CALL];
+  const code = funcMap[op] + '(' + num + ')';
+  return [code, Blockly.Python.ORDER_FUNCTION_CALL];
 };
 
+// FORCE DELETE Blockly's built-in, then replace
+if (Blockly.Python['math_atan2']) {
+  delete Blockly.Python['math_atan2'];
+}
+
 Blockly.Python['math_atan2'] = function(block) {
-  const y = Blockly.Python.valueToCode(block, 'Y', Blockly.Python.ORDER_FUNCTION_CALL) || '0';
-  const x = Blockly.Python.valueToCode(block, 'X', Blockly.Python.ORDER_FUNCTION_CALL) || '0';
-  return [`math.atan2(${y}, ${x})`, Blockly.Python.ORDER_FUNCTION_CALL];
+  const y = Blockly.Python.valueToCode(block, 'Y', Blockly.Python.ORDER_NONE) || '0';
+  const x = Blockly.Python.valueToCode(block, 'X', Blockly.Python.ORDER_NONE) || '0';
+  // Direct call - Python's atan2 returns radians
+  const code = 'math.atan2(' + y + ', ' + x + ')';
+  return [code, Blockly.Python.ORDER_FUNCTION_CALL];
 };
 
 Blockly.Python['math_radians'] = function(block) {
@@ -302,4 +350,26 @@ Blockly.Python['math_abs'] = function(block) {
 
 Blockly.Python['math_pi'] = function(block) {
   return ['math.pi', Blockly.Python.ORDER_ATOMIC];
+};
+
+Blockly.Python['math_round'] = function(block) {
+  const num = Blockly.Python.valueToCode(block, 'NUM', Blockly.Python.ORDER_FUNCTION_CALL) || '0';
+  const digits = Blockly.Python.valueToCode(block, 'DIGITS', Blockly.Python.ORDER_FUNCTION_CALL) || '0';
+  return [`round(${num}, ${digits})`, Blockly.Python.ORDER_FUNCTION_CALL];
+};
+
+Blockly.Python['angle_error'] = function(block) {
+  const current = Blockly.Python.valueToCode(block, 'CURRENT', Blockly.Python.ORDER_FUNCTION_CALL) || '0';
+  const target = Blockly.Python.valueToCode(block, 'TARGET', Blockly.Python.ORDER_FUNCTION_CALL) || '0';
+  return [`angle_error(${target}, ${current})`, Blockly.Python.ORDER_FUNCTION_CALL];
+};
+
+Blockly.Python['math_square'] = function(block) {
+  const num = Blockly.Python.valueToCode(block, 'NUM', Blockly.Python.ORDER_POWER) || '0';
+  return [`(${num}) ** 2`, Blockly.Python.ORDER_POWER];
+};
+
+Blockly.Python['math_sqrt'] = function(block) {
+  const num = Blockly.Python.valueToCode(block, 'NUM', Blockly.Python.ORDER_FUNCTION_CALL) || '0';
+  return [`math.sqrt(${num})`, Blockly.Python.ORDER_FUNCTION_CALL];
 };
