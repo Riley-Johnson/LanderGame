@@ -4,11 +4,11 @@
   "description": "Testing level",
   "scenario": {
     "x": 0,
-    "y": 1000,
-    "vx": 50,
+    "y": 2000,
+    "vx": 200,
     "vy": -10,
     "angle": 0,
     "angularVelocity": 0,
-    "fuel": 0.5
+    "fuel": 10
   }
 }

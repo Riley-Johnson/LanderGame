@@ -9,7 +9,7 @@ FUEL_MASS = 0.5  # kg (initial fuel mass)
 THRUSTER_FORCE = 50.0  # N (main engine)
 RCS_TORQUE = 3.0  # N·m (rotation control torque)
 MOMENT_OF_INERTIA = 1.0  # kg*m^2 (rotational inertia)
-DT = 0.016  # seconds (time step, ~60 FPS)
+DT = 0.01  # seconds
 MAX_ALTITUDE = 100.0  # meters
 FUEL_CONSUMPTION_RATE = 0.15  # kg/s at full throttle
 
@@ -31,6 +31,7 @@ first_timestep = True  # Flag to track if this is the first timestep
 current_time = 0.0  # Current simulation time in seconds
 crashed = False  # Flag to track if lander crashed (hit ground too fast)
 landed_safely = False  # Flag to track successful landing
+time_warp = 1.0  # Time warp factor (1.0 = real-time, 2.0 = 2x speed, etc.)
 
 def reset():
     global x, y, vx, vy, angle, angular_velocity, fuel, initial_fuel, running, task, throttle, rcs_value, first_timestep, current_time, crashed, landed_safely
@@ -180,6 +181,8 @@ def compute_derivatives(state, throttle_val, rcs_val, current_fuel):
 async def step_loop():
     """Runs continuously and updates physics with RK4 integration."""
     global x, y, vx, vy, angle, angular_velocity, fuel, running, throttle, rcs_value, user_control_func, first_timestep, current_time, crashed, landed_safely
+    import time
+    last_real_time = time.time()
     try:
         while running:
             # Run user control code if set
@@ -259,7 +262,15 @@ async def step_loop():
 
             # No ceiling or horizontal boundaries - unlimited exploration!
 
-            await asyncio.sleep(DT)
+            # Real-time synchronization: sleep to match real-time (adjusted by time warp)
+            current_real_time = time.time()
+            elapsed_real_time = current_real_time - last_real_time
+            sleep_time = (DT / time_warp) - elapsed_real_time
+            if sleep_time > 0:
+                await asyncio.sleep(sleep_time)
+            else:
+                await asyncio.sleep(0)  # Yield control if running behind
+            last_real_time = time.time()
     except asyncio.CancelledError:
         print("Physics loop cancelled")
         raise
@@ -275,9 +286,22 @@ def get_horizontal_velocity():
     """Return horizontal velocity in m/s (positive = right)"""
     return vx
 
+def get_speed():
+    """Return total speed in m/s (magnitude of velocity vector)"""
+    return math.sqrt(vx**2 + vy**2)
+
 def get_fuel():
     """Return current fuel in kg"""
     return fuel
+
+def set_time_warp(factor):
+    """Set time warp factor (1.0 = real-time, 2.0 = 2x speed, etc.)"""
+    global time_warp
+    time_warp = max(0.1, factor)  # Minimum 0.1x speed
+
+def get_time_warp():
+    """Return current time warp factor"""
+    return time_warp
 
 def get_state():
     """Return state for JS renderer."""
@@ -294,5 +318,6 @@ def get_state():
         "initial_fuel": initial_fuel,
         "rcs_value": rcs_value,
         "crashed": crashed,
-        "landed_safely": landed_safely
+        "landed_safely": landed_safely,
+        "time_warp": time_warp
     })

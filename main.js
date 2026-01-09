@@ -122,8 +122,17 @@ async function init() {
           <block type="get_velocity"></block>
           <block type="get_horizontal_position"></block>
           <block type="get_horizontal_velocity"></block>
+          <block type="get_speed"></block>
           <block type="get_angle"></block>
           <block type="get_angular_velocity"></block>
+        </category>
+        <category name="Constants" colour="65">
+          <block type="const_vehicle_mass"></block>
+          <block type="const_max_thrust"></block>
+          <block type="const_rcs_torque"></block>
+          <block type="const_gravity"></block>
+          <block type="const_fuel_rate"></block>
+          <block type="const_moment_inertia"></block>
         </category>
         <category name="Variables" colour="330" custom="VARIABLE"></category>
         <category name="Functions" colour="290" custom="PROCEDURE"></category>
@@ -183,7 +192,15 @@ async function init() {
         </category>
       </xml>
     `,
-    sounds: false  // Disable sounds to avoid CORS issues with cross-origin isolation
+    sounds: false,  // Disable sounds to avoid CORS issues with cross-origin isolation
+    zoom: {
+      controls: true,
+      wheel: true,
+      startScale: 1.0,
+      maxScale: 3,
+      minScale: 0.3,
+      scaleSpeed: 1.2
+    }
   });
 
   // Populate level select menu
@@ -206,7 +223,7 @@ async function init() {
   const canvas = document.getElementById('game');
   ctx = canvas.getContext('2d');
 
-  // start draw loop immediately
+  // start draw loop at 60 FPS
   requestAnimationFrame(update);
 
   // load Pyodide and our Python physics from separate file
@@ -219,7 +236,7 @@ async function init() {
     }
   });
 
-  const physicsCode = await fetch('physics.py?v=9').then(r => r.text());
+  const physicsCode = await fetch('physics.py?v=13').then(r => r.text());
   await pyodide.runPythonAsync(physicsCode);
 
   console.log("Pyodide loaded and ready");
@@ -232,6 +249,21 @@ async function init() {
     document.getElementById('consoleContent').innerHTML = '';
     addToConsole("Console cleared.");
   });
+
+  // Time warp button handlers
+  function setTimeWarp(factor, buttonId) {
+    if (pyodide && gameStarted) {
+      pyodide.runPythonAsync(`set_time_warp(${factor})`).catch(err => console.error(err));
+    }
+    // Update button active states
+    document.querySelectorAll('.warpButton').forEach(btn => btn.classList.remove('active'));
+    document.getElementById(buttonId).classList.add('active');
+  }
+
+  document.getElementById("warp1x").addEventListener("click", () => setTimeWarp(1.0, 'warp1x'));
+  document.getElementById("warp2x").addEventListener("click", () => setTimeWarp(2.0, 'warp2x'));
+  document.getElementById("warp5x").addEventListener("click", () => setTimeWarp(5.0, 'warp5x'));
+  document.getElementById("warp10x").addEventListener("click", () => setTimeWarp(10.0, 'warp10x'));
 
   // Menu button handler
   document.getElementById("menuButton").addEventListener("click", () => {
@@ -450,6 +482,9 @@ async function init() {
     const wrappedCode = `
 import asyncio
 
+# Import physics constants for user code
+from __main__ import GRAVITY, DRY_MASS, THRUSTER_FORCE, RCS_TORQUE, MOMENT_OF_INERTIA, FUEL_CONSUMPTION_RATE
+
 # Initialize user variables (persist between timesteps)
 ${varInit}
 # User's control code runs every physics timestep
@@ -572,7 +607,7 @@ function updateStars(cameraX, cameraY) {
   }
 }
 
-// render loop
+// render loop - runs at 60 FPS while physics runs independently at high frequency
 function update() {
   if (!ctx) {
     requestAnimationFrame(update);
@@ -587,6 +622,7 @@ function update() {
     return;
   }
 
+  // Query state only for rendering (physics runs independently)
   pyodide.runPythonAsync(`get_state()`).then(result => {
     const state = JSON.parse(result.toJs ? JSON.stringify(result.toJs()) : result);
 
@@ -869,6 +905,14 @@ function update() {
     const throttlePercent = ((state.throttle || 0) * 100).toFixed(0);
     ctx.fillText(`Throttle: ${throttlePercent}%`, 20, 180);
 
+    // Draw time warp indicator
+    const timeWarp = state.time_warp || 1.0;
+    if (timeWarp !== 1.0) {
+      ctx.fillStyle = "#ff0";
+      ctx.font = "bold 20px monospace";
+      ctx.fillText(`Time: ${timeWarp.toFixed(1)}x`, 20, 230);
+    }
+
     // Draw fuel with color coding
     const fuelKg = state.fuel || 0;
     const initialFuel = state.initial_fuel || 0.5;
@@ -884,7 +928,7 @@ function update() {
   }).catch(err => {
     console.error("Error in update loop:", err);
   }).finally(() => {
-    requestAnimationFrame(update);
+    requestAnimationFrame(update);  // Render at 60 FPS
   });
 }
 

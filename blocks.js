@@ -28,6 +28,13 @@ Blockly.defineBlocksWithJsonArray([
     "tooltip": "Get horizontal velocity in m/s (positive = right)"
   },
   {
+    "type": "get_speed",
+    "message0": "speed (m/s)",
+    "output": "Number",
+    "colour": 120,
+    "tooltip": "Get total speed in m/s (magnitude of velocity)"
+  },
+  {
     "type": "get_angle",
     "message0": "angle (radians)",
     "output": "Number",
@@ -192,6 +199,48 @@ Blockly.defineBlocksWithJsonArray([
     "output": "Number",
     "colour": 230,
     "tooltip": "Square root of a number"
+  },
+  {
+    "type": "const_vehicle_mass",
+    "message0": "vehicle mass (kg)",
+    "output": "Number",
+    "colour": 65,
+    "tooltip": "Mass of the lander (constant)"
+  },
+  {
+    "type": "const_max_thrust",
+    "message0": "max thrust (N)",
+    "output": "Number",
+    "colour": 65,
+    "tooltip": "Maximum thrust force from main engine"
+  },
+  {
+    "type": "const_rcs_torque",
+    "message0": "RCS torque (N·m)",
+    "output": "Number",
+    "colour": 65,
+    "tooltip": "Maximum torque from RCS thrusters"
+  },
+  {
+    "type": "const_gravity",
+    "message0": "gravity (m/s²)",
+    "output": "Number",
+    "colour": 65,
+    "tooltip": "Gravitational acceleration"
+  },
+  {
+    "type": "const_fuel_rate",
+    "message0": "fuel consumption rate (kg/s)",
+    "output": "Number",
+    "colour": 65,
+    "tooltip": "Fuel consumption rate at full throttle"
+  },
+  {
+    "type": "const_moment_inertia",
+    "message0": "moment of inertia (kg·m²)",
+    "output": "Number",
+    "colour": 65,
+    "tooltip": "Rotational inertia of the lander"
   }
 ]);
 
@@ -277,6 +326,10 @@ Blockly.Python['get_horizontal_position'] = function(block) {
 
 Blockly.Python['get_horizontal_velocity'] = function(block) {
   return ['get_horizontal_velocity()', Blockly.Python.ORDER_FUNCTION_CALL];
+};
+
+Blockly.Python['get_speed'] = function(block) {
+  return ['get_speed()', Blockly.Python.ORDER_FUNCTION_CALL];
 };
 
 Blockly.Python['get_angle'] = function(block) {
@@ -372,4 +425,28 @@ Blockly.Python['math_square'] = function(block) {
 Blockly.Python['math_sqrt'] = function(block) {
   const num = Blockly.Python.valueToCode(block, 'NUM', Blockly.Python.ORDER_FUNCTION_CALL) || '0';
   return [`math.sqrt(${num})`, Blockly.Python.ORDER_FUNCTION_CALL];
+};
+
+Blockly.Python['const_vehicle_mass'] = function(block) {
+  return ['DRY_MASS', Blockly.Python.ORDER_ATOMIC];
+};
+
+Blockly.Python['const_max_thrust'] = function(block) {
+  return ['THRUSTER_FORCE', Blockly.Python.ORDER_ATOMIC];
+};
+
+Blockly.Python['const_rcs_torque'] = function(block) {
+  return ['RCS_TORQUE', Blockly.Python.ORDER_ATOMIC];
+};
+
+Blockly.Python['const_gravity'] = function(block) {
+  return ['GRAVITY', Blockly.Python.ORDER_ATOMIC];
+};
+
+Blockly.Python['const_fuel_rate'] = function(block) {
+  return ['FUEL_CONSUMPTION_RATE', Blockly.Python.ORDER_ATOMIC];
+};
+
+Blockly.Python['const_moment_inertia'] = function(block) {
+  return ['MOMENT_OF_INERTIA', Blockly.Python.ORDER_ATOMIC];
 };
