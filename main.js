@@ -147,14 +147,6 @@ async function init() {
         </category>
         <category name="Logic" colour="210">
           <block type="controls_if"></block>
-          <block type="controls_repeat_ext">
-            <value name="TIMES">
-              <shadow type="math_number">
-                <field name="NUM">10</field>
-              </shadow>
-            </value>
-          </block>
-          <block type="controls_whileUntil"></block>
           <block type="logic_compare">
             <field name="OP">LT</field>
           </block>
@@ -238,7 +230,7 @@ async function init() {
     }
   });
 
-  const physicsCode = await fetch('physics.py?v=16').then(r => r.text());
+  const physicsCode = await fetch('physics.py?v=17').then(r => r.text());
   await pyodide.runPythonAsync(physicsCode);
 
   console.log("Pyodide loaded and ready");
@@ -275,7 +267,7 @@ async function init() {
   // Failure overlay handlers
   document.getElementById("tryAgainButton").addEventListener("click", () => {
     document.getElementById('failureOverlay').style.display = 'none';
-    document.getElementById('runButton').click();
+    // Don't auto-restart — let the user adjust their code and click Run when ready
   });
 
   document.getElementById("failureMenuButton").addEventListener("click", () => {
@@ -499,14 +491,18 @@ set_control_function(user_control)
     const variables = workspace.getAllVariables();
     const varNames = variables.map(v => v.name);
 
-    // Create variable initialization code (at module level)
-    const varInit = varNames.length > 0
-      ? varNames.map(name => `${name} = 0`).join('\n') + '\n'
+    // Prefix user variables so they never shadow physics globals (x, y, vx, vy, angle, etc.)
+    const VAR_PREFIX = '_u_';
+    const prefixedNames = varNames.map(n => VAR_PREFIX + n);
+
+    // Create variable initialization code (at module level, prefixed)
+    const varInit = prefixedNames.length > 0
+      ? prefixedNames.map(name => `${name} = 0`).join('\n') + '\n'
       : '';
 
-    // Create global declarations for inside the function
-    const globalDecl = varNames.length > 0
-      ? '    global ' + varNames.join(', ') + '\n'
+    // Create global declarations for inside the function (prefixed)
+    const globalDecl = prefixedNames.length > 0
+      ? '    global ' + prefixedNames.join(', ') + '\n'
       : '';
 
     // Remove Blockly's automatic variable initialization (e.g., "count = None")
@@ -516,15 +512,18 @@ set_control_function(user_control)
       const lines = userCode.split('\n');
       const filteredLines = lines.filter(line => {
         const trimmed = line.trim();
-        // Remove lines that look like "variableName = None"
         for (const varName of varNames) {
-          if (trimmed === `${varName} = None`) {
-            return false;
-          }
+          if (trimmed === `${varName} = None`) return false;
         }
         return true;
       });
       userCode = filteredLines.join('\n');
+    }
+
+    // Rename every user variable reference to the prefixed version
+    for (const varName of varNames) {
+      const regex = new RegExp(`\\b${varName}\\b`, 'g');
+      userCode = userCode.replace(regex, VAR_PREFIX + varName);
     }
 
     // POST-PROCESS: Remove Blockly's degree conversions to force radians
@@ -1317,7 +1316,7 @@ function update() {
     if (timeWarp !== 1.0) {
       ctx.fillStyle = "#ff0";
       ctx.font = "bold 13px monospace";
-      ctx.fillText(`Time: ${timeWarp.toFixed(1)}x`, 10, 140);
+      ctx.fillText(`Time: ${timeWarp.toFixed(1)}x`, 10, 150);
     }
 
     // Draw fuel with color coding

@@ -291,7 +291,7 @@ Blockly.Blocks['get_rcs'] = {
 
 Blockly.Python['set_throttle'] = function(block) {
   const value = Blockly.Python.valueToCode(block, 'VALUE', Blockly.Python.ORDER_NONE) || '0';
-  return 'set_throttle(' + value + ')\n';
+  return 'set_throttle(max(0.0, min(1.0, ' + value + ')))\n';
 };
 
 Blockly.Python['get_throttle'] = function(block) {
@@ -305,11 +305,6 @@ Blockly.Python['set_rcs'] = function(block) {
 
 Blockly.Python['get_rcs'] = function(block) {
   return ['get_rcs()', Blockly.Python.ORDER_FUNCTION_CALL];
-};
-
-Blockly.Python['wait_seconds'] = function(block) {
-  const seconds = block.getFieldValue('SECONDS');
-  return `await wait(${seconds})\n`;
 };
 
 Blockly.Python['get_altitude'] = function(block) {

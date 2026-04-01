@@ -213,10 +213,18 @@ async def step_loop():
     import time
     last_real_time = time.time()
     frame_time = 1.0 / 60.0  # Target 60 FPS for real-time pacing
+    step_accumulator = 0.0   # fractional step budget (supports time_warp < 1)
     try:
         while running:
-            # Run multiple physics steps based on time warp
-            steps_per_frame = max(1, int(time_warp))
+            # Accumulate fractional steps so 0.5x runs 1 step every other frame
+            step_accumulator += time_warp
+            steps_per_frame = int(step_accumulator)
+            step_accumulator -= steps_per_frame
+            if steps_per_frame == 0:
+                # Sub-1x warp: skip physics this frame but keep event loop alive
+                await asyncio.sleep(0)
+                last_real_time = time.time()
+                continue
 
             for step in range(steps_per_frame):
                 if not running:
