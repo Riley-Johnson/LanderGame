@@ -6,12 +6,12 @@ import math
 GRAVITY = 9.8  # m/s^2
 DRY_MASS = 1  # kg
 FUEL_MASS = 0.5  # kg (initial fuel mass)
-THRUSTER_FORCE = 50.0  # N (main engine)
+THRUSTER_FORCE = 30.0  # N (main engine)
 RCS_TORQUE = 3.0  # N·m (rotation control torque)
 MOMENT_OF_INERTIA = 1.0  # kg*m^2 (rotational inertia)
-DT = 0.01  # seconds
+DT = 0.0167  # seconds
 MAX_ALTITUDE = 100.0  # meters
-FUEL_CONSUMPTION_RATE = 0.15  # kg/s at full throttle
+FUEL_CONSUMPTION_RATE = 0.10  # kg/s at full throttle
 
 # State variables
 x = 0.0  # horizontal position in meters (0 = center, positive = right)
@@ -31,10 +31,31 @@ first_timestep = True  # Flag to track if this is the first timestep
 current_time = 0.0  # Current simulation time in seconds
 crashed = False  # Flag to track if lander crashed (hit ground too fast)
 landed_safely = False  # Flag to track successful landing
+missed_target = False  # Flag for landing outside the target zone
 time_warp = 1.0  # Time warp factor (1.0 = real-time, 2.0 = 2x speed, etc.)
+target_x = None  # Target landing x position (None = anywhere is valid)
+TARGET_RADIUS = 10.0  # meters
+
+# Ground contact physics
+LEG_HALF_SPAN     = 2.75   # m  — half leg width from CoM
+LEG_VERT          = 2.25   # m  — CoM height above leg tip when upright
+SAFE_ANGLE        = 0.30   # rad (~17°) — max tilt for a successful landing
+CRASH_ANGLE       = 1.20   # rad (~69°) — fall-over angle (lander crashes)
+GROUND_H_DAMP     = 0.965  # horizontal velocity multiplier per step (surface friction)
+GROUND_AV_DAMP    = 0.930  # angular velocity multiplier per step
+FRICTION_TORQUE_K = 0.035  # vx → angular acceleration coupling (m/s → rad/s² per m/s)
+TAU_GRAV_SCALE    = 0.20   # scale-down factor on tipping torque
+
+def set_target(tx):
+    global target_x
+    target_x = tx
+
+def clear_target():
+    global target_x
+    target_x = None
 
 def reset():
-    global x, y, vx, vy, angle, angular_velocity, fuel, initial_fuel, running, task, throttle, rcs_value, first_timestep, current_time, crashed, landed_safely
+    global x, y, vx, vy, angle, angular_velocity, fuel, initial_fuel, running, task, throttle, rcs_value, first_timestep, current_time, crashed, landed_safely, missed_target
     x = 0.0  # center horizontally (0 meters from center)
     y = 90.0  # start at 90 meters altitude
     vx = 0.0  # start with zero horizontal velocity
@@ -50,6 +71,7 @@ def reset():
     current_time = 0.0  # Reset simulation time
     crashed = False
     landed_safely = False
+    missed_target = False
 
     # Cancel previous physics loop if it exists
     if task and not task.done():
@@ -60,7 +82,7 @@ def reset():
 
 def load_scenario(scenario_x, scenario_y, scenario_vx, scenario_vy, scenario_angle, scenario_angular_velocity, scenario_fuel=None):
     """Load a custom scenario with specific initial conditions"""
-    global x, y, vx, vy, angle, angular_velocity, fuel, initial_fuel, running, task, throttle, rcs_value, first_timestep, current_time, crashed, landed_safely
+    global x, y, vx, vy, angle, angular_velocity, fuel, initial_fuel, running, task, throttle, rcs_value, first_timestep, current_time, crashed, landed_safely, missed_target
     x = scenario_x
     y = scenario_y
     vx = scenario_vx
@@ -76,6 +98,7 @@ def load_scenario(scenario_x, scenario_y, scenario_vx, scenario_vy, scenario_ang
     current_time = 0.0
     crashed = False
     landed_safely = False
+    missed_target = False
 
     # Cancel previous physics loop if it exists
     if task and not task.done():
@@ -95,7 +118,10 @@ def get_velocity():
 def set_throttle(value):
     """Set the main thruster throttle level (0.0 to 1.0)"""
     global throttle
-    throttle = max(0.0, min(1.0, value))  # Clamp between 0 and 1
+    if landed_safely:
+        throttle = 0.0
+        return
+    throttle = max(0.0, min(1.0, value))
 
 def get_throttle():
     """Return current throttle level (0.0 to 1.0)"""
@@ -109,7 +135,10 @@ def fire_thruster():
 def set_rcs(value):
     """Set RCS control value (-1.0 to 1.0, negative = CCW, positive = CW)"""
     global rcs_value
-    rcs_value = max(-1.0, min(1.0, value))  # Clamp to [-1, 1]
+    if landed_safely:
+        rcs_value = 0.0
+        return
+    rcs_value = max(-1.0, min(1.0, value))
 
 def get_rcs():
     """Return current RCS control value"""
@@ -183,89 +212,129 @@ async def step_loop():
     global x, y, vx, vy, angle, angular_velocity, fuel, running, throttle, rcs_value, user_control_func, first_timestep, current_time, crashed, landed_safely
     import time
     last_real_time = time.time()
+    frame_time = 1.0 / 60.0  # Target 60 FPS for real-time pacing
     try:
         while running:
-            # Run user control code if set
-            if user_control_func:
-                try:
-                    await user_control_func()
-                except Exception as e:
-                    print(f"Error in user control code: {e}")
-                finally:
-                    if first_timestep:
-                        first_timestep = False
+            # Run multiple physics steps based on time warp
+            steps_per_frame = max(1, int(time_warp))
 
-            # Store current control inputs
-            throttle_snapshot = throttle
-            rcs_snapshot = rcs_value
+            for step in range(steps_per_frame):
+                if not running:
+                    break
 
-            # Consume fuel based on throttle (only if we have fuel)
-            if fuel > 0 and throttle_snapshot > 0:
-                fuel_consumed = FUEL_CONSUMPTION_RATE * throttle_snapshot * DT
-                fuel = max(0.0, fuel - fuel_consumed)
-                if fuel == 0:
-                    print("OUT OF FUEL!")
+                # Run user control code if set (once per frame, not per step)
+                if step == 0 and user_control_func:
+                    try:
+                        await user_control_func()
+                    except Exception as e:
+                        print(f"Error in user control code: {e}")
+                    finally:
+                        if first_timestep:
+                            first_timestep = False
 
-            # Current state vector
-            state = [x, y, vx, vy, angle, angular_velocity]
+                # Store current control inputs
+                throttle_snapshot = throttle
+                rcs_snapshot = rcs_value
 
-            # RK4 integration (pass current fuel for mass calculation)
-            k1 = compute_derivatives(state, throttle_snapshot, rcs_snapshot, fuel)
+                # Consume fuel based on throttle (only if we have fuel)
+                if fuel > 0 and throttle_snapshot > 0:
+                    fuel_consumed = FUEL_CONSUMPTION_RATE * throttle_snapshot * DT
+                    fuel = max(0.0, fuel - fuel_consumed)
+                    if fuel == 0:
+                        print("OUT OF FUEL!")
 
-            state_k2 = [state[i] + k1[i] * DT / 2 for i in range(6)]
-            k2 = compute_derivatives(state_k2, throttle_snapshot, rcs_snapshot, fuel)
+                # Current state vector
+                state = [x, y, vx, vy, angle, angular_velocity]
 
-            state_k3 = [state[i] + k2[i] * DT / 2 for i in range(6)]
-            k3 = compute_derivatives(state_k3, throttle_snapshot, rcs_snapshot, fuel)
+                # RK4 integration (pass current fuel for mass calculation)
+                k1 = compute_derivatives(state, throttle_snapshot, rcs_snapshot, fuel)
 
-            state_k4 = [state[i] + k3[i] * DT for i in range(6)]
-            k4 = compute_derivatives(state_k4, throttle_snapshot, rcs_snapshot, fuel)
+                state_k2 = [state[i] + k1[i] * DT / 2 for i in range(6)]
+                k2 = compute_derivatives(state_k2, throttle_snapshot, rcs_snapshot, fuel)
 
-            # Update state using RK4 formula
-            for i in range(6):
-                state[i] += (k1[i] + 2*k2[i] + 2*k3[i] + k4[i]) * DT / 6
+                state_k3 = [state[i] + k2[i] * DT / 2 for i in range(6)]
+                k3 = compute_derivatives(state_k3, throttle_snapshot, rcs_snapshot, fuel)
 
-            # Unpack state
-            x, y, vx, vy, angle, angular_velocity = state
+                state_k4 = [state[i] + k3[i] * DT for i in range(6)]
+                k4 = compute_derivatives(state_k4, throttle_snapshot, rcs_snapshot, fuel)
 
-            # Update simulation time
-            current_time += DT
+                # Update state using RK4 formula
+                for i in range(6):
+                    state[i] += (k1[i] + 2*k2[i] + 2*k3[i] + k4[i]) * DT / 6
 
-            # Normalize angle to [-π, π]
-            while angle > math.pi:
-                angle -= 2 * math.pi
-            while angle < -math.pi:
-                angle += 2 * math.pi
+                # Unpack state
+                x, y, vx, vy, angle, angular_velocity = state
 
-            # Ground collision (y = 0 is ground level)
-            if y <= 0:
-                y = 0
-                # Calculate total impact velocity
-                total_velocity = math.sqrt(vx**2 + vy**2)
+                # Update simulation time
+                current_time += DT
 
-                if total_velocity > 10.0:
-                    # Crashed - hit ground too fast
-                    crashed = True
-                    running = False
-                    print(f"CRASHED at {total_velocity:.1f} m/s! (max safe landing speed: 10 m/s)")
-                    print(f"Impact location: x={x:.1f}m, angle={math.degrees(angle):.1f}°")
-                else:
-                    # Safe landing
-                    landed_safely = True
-                    running = False
-                    print(f"LANDED SAFELY at {total_velocity:.1f} m/s")
-                    print(f"Landing location: x={x:.1f}m, angle={math.degrees(angle):.1f}°")
+                # Normalize angle to [-π, π]
+                while angle > math.pi:
+                    angle -= 2 * math.pi
+                while angle < -math.pi:
+                    angle += 2 * math.pi
 
-                vy = 0
-                vx = 0
-                angular_velocity = 0
+                # Ground collision (y = 0 is ground level)
+                if y <= 0:
+                    y = 0.0
 
-            # No ceiling or horizontal boundaries - unlimited exploration!
+                    # --- Impact: absorb downward velocity ---
+                    if vy < 0:
+                        impact_speed = math.sqrt(vx**2 + vy**2)
+                        vy = 0.0
+                        if impact_speed > 10.0:
+                            crashed = True
+                            running = False
+                            vx = 0.0; angular_velocity = 0.0
+                            print(f"CRASHED at {impact_speed:.1f} m/s!")
 
-            # Real-time synchronization: sleep to match real-time (adjusted by time warp)
+                    # --- Continuous ground-contact forces ---
+                    if running:
+                        total_mass = DRY_MASS + fuel
+
+                        # Tipping torque: gravity acts about the lower-leg pivot.
+                        # Formula: τ = -m·g·(LEG_HALF_SPAN·cos θ − LEG_VERT·|sin θ|)·sign(θ)
+                        # Stabilising for |θ| < arctan(LEG_HALF_SPAN/LEG_VERT) ≈ 50.7°
+                        # Destabilising beyond that — lander falls over.
+                        if abs(angle) < math.pi * 0.5:
+                            tau_grav = -(total_mass * GRAVITY) * (
+                                LEG_HALF_SPAN * math.cos(angle)
+                                - LEG_VERT * abs(math.sin(angle))
+                            ) * math.copysign(1.0, angle)
+                            angular_velocity += tau_grav * TAU_GRAV_SCALE / MOMENT_OF_INERTIA * DT
+
+                        # Friction torque: horizontal sliding tips the lander forward
+                        angular_velocity += (
+                            -vx * total_mass * GRAVITY * FRICTION_TORQUE_K
+                            / MOMENT_OF_INERTIA * DT
+                        )
+
+                        # Surface damping (leg contact friction)
+                        vx               *= GROUND_H_DAMP
+                        angular_velocity *= GROUND_AV_DAMP
+
+                        # --- Outcome checks ---
+                        if abs(angle) >= CRASH_ANGLE:
+                            crashed = True
+                            running = False
+                            vx = 0.0; vy = 0.0; angular_velocity = 0.0
+                            print(f"TOPPLED OVER! angle={math.degrees(angle):.1f}°")
+
+                        elif abs(angular_velocity) < 0.05 and abs(vx) < 0.3 and abs(angle) < SAFE_ANGLE:
+                            if target_x is None or abs(x - target_x) <= TARGET_RADIUS:
+                                # Inside target (or no target) — success
+                                throttle = 0.0; rcs_value = 0.0
+                                landed_safely = True
+                                running = False
+                                print(f"LANDED SAFELY at angle={math.degrees(angle):.1f}°")
+                            # else: settled outside target — keep sim running so player can lift off
+
+                # No ceiling or horizontal boundaries - unlimited exploration!
+
+            # Real-time synchronization: sleep to match 60 FPS
             current_real_time = time.time()
             elapsed_real_time = current_real_time - last_real_time
-            sleep_time = (DT / time_warp) - elapsed_real_time
+            sleep_time = frame_time - elapsed_real_time
             if sleep_time > 0:
                 await asyncio.sleep(sleep_time)
             else:
@@ -319,5 +388,6 @@ def get_state():
         "rcs_value": rcs_value,
         "crashed": crashed,
         "landed_safely": landed_safely,
+        "missed_target": missed_target,
         "time_warp": time_warp
     })

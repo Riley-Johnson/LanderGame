@@ -20,7 +20,9 @@ function createLevel(levelData) {
     id: levelData.id,
     name: levelData.name,
     description: levelData.description,
-    scenario: { ...DEFAULT_SCENARIO, ...levelData.scenario }
+    scenario: { ...DEFAULT_SCENARIO, ...levelData.scenario },
+    target: levelData.target || null,
+    mode: levelData.mode || 'both'  // 'manual', 'code', or 'both'
   };
 }
 
@@ -236,7 +238,7 @@ async function init() {
     }
   });
 
-  const physicsCode = await fetch('physics.py?v=13').then(r => r.text());
+  const physicsCode = await fetch('physics.py?v=16').then(r => r.text());
   await pyodide.runPythonAsync(physicsCode);
 
   console.log("Pyodide loaded and ready");
@@ -264,6 +266,22 @@ async function init() {
   document.getElementById("warp2x").addEventListener("click", () => setTimeWarp(2.0, 'warp2x'));
   document.getElementById("warp5x").addEventListener("click", () => setTimeWarp(5.0, 'warp5x'));
   document.getElementById("warp10x").addEventListener("click", () => setTimeWarp(10.0, 'warp10x'));
+
+  // Success overlay handler
+  document.getElementById("successOkButton").addEventListener("click", () => {
+    document.getElementById('successOverlay').style.display = 'none';
+  });
+
+  // Failure overlay handlers
+  document.getElementById("tryAgainButton").addEventListener("click", () => {
+    document.getElementById('failureOverlay').style.display = 'none';
+    document.getElementById('runButton').click();
+  });
+
+  document.getElementById("failureMenuButton").addEventListener("click", () => {
+    document.getElementById('failureOverlay').style.display = 'none';
+    document.getElementById('levelSelectOverlay').style.display = 'flex';
+  });
 
   // Menu button handler
   document.getElementById("menuButton").addEventListener("click", () => {
@@ -364,15 +382,15 @@ async function init() {
   window.addEventListener("keydown", (e) => {
     // Toggle manual control with M key (works anytime after pyodide loads)
     if ((e.key === "m" || e.key === "M") && pyodide) {
+      const mode = currentLevel?.mode || 'both';
+      if (mode === 'manual') { addToConsole("Manual control is locked ON for this level."); return; }
+      if (mode === 'code')   { addToConsole("Manual control is disabled for this level."); return; }
       manualControlEnabled = !manualControlEnabled;
       const status = manualControlEnabled ? "ENABLED" : "DISABLED";
       addToConsole(`Manual control ${status} (W/S: throttle, A/D: rotate)`);
-      console.log(`Manual control: ${status}`);
       if (!manualControlEnabled) {
         currentThrottle = 0.0;
-        if (gameStarted) {
-          pyodide.runPythonAsync('set_throttle(0.0)').catch(err => console.error(err));
-        }
+        if (gameStarted) pyodide.runPythonAsync('set_throttle(0.0)').catch(err => console.error(err));
       }
       return;
     }
@@ -432,8 +450,48 @@ async function init() {
     addToConsole("--- Starting simulation ---");
     addToConsole(`Level: ${currentLevel.name}`);
 
-    // Reset crash timer
+    // Reset crash timer and success state
+    gameStarted = false;  // Stop render loop from querying stale Python state during reset
     crashTime = null;
+    previousLandedState = false;
+    document.getElementById('successOverlay').style.display = 'none';
+    document.getElementById('failureOverlay').style.display = 'none';
+
+    // Apply level mode
+    const levelMode = currentLevel.mode || 'both';
+    currentThrottle = 0.0;
+    if (levelMode === 'manual') {
+      manualControlEnabled = true;
+      addToConsole("Manual control mode — W/S: throttle, A/D: rotate");
+    } else {
+      manualControlEnabled = false;
+      if (levelMode === 'code') addToConsole("Code-only mode — manual control disabled");
+      else addToConsole("Press 'M' to toggle manual control");
+    }
+
+    // In manual mode skip Blockly entirely — use a no-op control function
+    if (levelMode === 'manual') {
+      try {
+        await pyodide.runPythonAsync(`
+import asyncio
+async def user_control():
+    pass
+set_control_function(user_control)
+`);
+        const s = currentLevel.scenario;
+        await pyodide.runPythonAsync(
+          `load_scenario(${s.x}, ${s.y}, ${s.vx}, ${s.vy}, ${s.angle}, ${s.angularVelocity}, ${s.fuel})`
+        );
+        const t = currentLevel.target;
+        await pyodide.runPythonAsync(t != null ? `set_target(${t.x})` : `clear_target()`);
+        gameStarted = true;
+        addToConsole("Simulation started!");
+        addToConsole(`Starting fuel: ${s.fuel.toFixed(2)} kg`);
+      } catch (err) {
+        addToConsole(`ERROR: ${err.message}`);
+      }
+      return;
+    }
 
     const code = Blockly.Python.workspaceToCode(workspace);
 
@@ -509,15 +567,79 @@ set_control_function(user_control)
       await pyodide.runPythonAsync(
         `load_scenario(${s.x}, ${s.y}, ${s.vx}, ${s.vy}, ${s.angle}, ${s.angularVelocity}, ${s.fuel})`
       );
+      const t = currentLevel.target;
+      await pyodide.runPythonAsync(t != null ? `set_target(${t.x})` : `clear_target()`);
       gameStarted = true;
       console.log("Simulation started");
       addToConsole("Simulation started!");
       addToConsole(`Starting fuel: ${s.fuel.toFixed(2)} kg`);
-      addToConsole("Press 'M' to toggle manual control");
+      if (levelMode === 'both') addToConsole("Press 'M' to toggle manual control");
     } catch (err) {
       console.error("Error setting up control code:", err);
       addToConsole(`ERROR: ${err.message}`);
     }
+  });
+
+  // ===== RESIZABLE PANELS =====
+  const blocklyDivEl    = document.getElementById('blocklyDiv');
+  const hResizerEl      = document.getElementById('hResizer');
+  const gameContainerEl = document.getElementById('gameContainer');
+  const vResizerEl      = document.getElementById('vResizer');
+
+  // Horizontal resizer: drag to resize Blockly vs right panel
+  let hDragging = false, hStartX = 0, hStartW = 0;
+
+  hResizerEl.addEventListener('mousedown', (e) => {
+    hDragging = true;
+    hStartX = e.clientX;
+    hStartW = blocklyDivEl.getBoundingClientRect().width;
+    hResizerEl.classList.add('dragging');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!hDragging) return;
+    const newW = Math.max(150, Math.min(window.innerWidth - 250, hStartW + (e.clientX - hStartX)));
+    blocklyDivEl.style.flex = `0 0 ${newW}px`;
+    Blockly.svgResize(workspace);
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!hDragging) return;
+    hDragging = false;
+    hResizerEl.classList.remove('dragging');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    Blockly.svgResize(workspace);
+  });
+
+  // Vertical resizer: drag to resize game canvas vs console
+  let vDragging = false, vStartY = 0, vStartH = 0;
+
+  vResizerEl.addEventListener('mousedown', (e) => {
+    vDragging = true;
+    vStartY = e.clientY;
+    vStartH = gameContainerEl.getBoundingClientRect().height;
+    vResizerEl.classList.add('dragging');
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!vDragging) return;
+    const newH = Math.max(80, Math.min(window.innerHeight - 80, vStartH + (e.clientY - vStartY)));
+    gameContainerEl.style.flex = `0 0 ${newH}px`;
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!vDragging) return;
+    vDragging = false;
+    vResizerEl.classList.remove('dragging');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
   });
 }
 
@@ -525,6 +647,7 @@ set_control_function(user_control)
 let cameraX = 0;  // Camera position in meters
 let cameraY = 50; // Camera position in meters
 let crashTime = null;  // Timestamp when crash occurred
+let allowSuccessOverlay = false;  // Only allow success after we've confirmed simulation reset
 
 // Infinite scrolling star system with deterministic generation
 let starCache = new Map(); // Cache stars by chunk ID
@@ -562,14 +685,14 @@ function generateChunkStars(chunkX, chunkY) {
 }
 
 // Update visible stars based on camera position
-function updateStars(cameraX, cameraY) {
-  const scaleX = 8;  // Match scaleY so movement looks consistent
+function updateStars(cameraX, cameraY, canvasW, canvasH) {
+  const scaleX = 8;
   const scaleY = 8;
 
   // Calculate visible world area with margins
   const margin = 200; // Margin in meters
-  const visibleWidth = 1200 / scaleX + margin * 2;
-  const visibleHeight = 800 / scaleY + margin * 2;
+  const visibleWidth = canvasW / scaleX + margin * 2;
+  const visibleHeight = canvasH / scaleY + margin * 2;
 
   const minX = cameraX - visibleWidth / 2;
   const maxX = cameraX + visibleWidth / 2;
@@ -607,6 +730,138 @@ function updateStars(cameraX, cameraY) {
   }
 }
 
+// Mars crater system
+let craterCache = new Map();
+const CRATER_CHUNK_SIZE = 100;
+
+function generateChunkCraters(chunkX) {
+  const craters = [];
+  const baseSeed = chunkX * 48271 + 99013;
+  // Fixed-width slots guarantee no overlap
+  // Fixed-width slots guarantee no overlap
+  const slotSize = 20; // meters between slots
+  const numSlots = Math.floor(CRATER_CHUNK_SIZE / slotSize);
+  for (let i = 0; i < numSlots; i++) {
+    const seed = baseSeed + i * 999983;
+    if (seededRandom(seed) > 0.5) continue; // 50% chance per slot
+    const xOffset = slotSize * 0.1 + seededRandom(seed + 1) * slotSize * 0.8;
+    const x = chunkX * CRATER_CHUNK_SIZE + i * slotSize + xOffset;
+    const radius = seededRandom(seed + 2) * 6 + 1.5; // 1.5–7.5 meters
+    craters.push({ x, radius });
+  }
+  return craters;
+}
+
+function updateCraters(cameraX, canvasW) {
+  const margin = 50;
+  const visibleWidth = canvasW / 8 + margin * 2;
+  const minX = cameraX - visibleWidth / 2;
+  const maxX = cameraX + visibleWidth / 2;
+  const minChunkX = Math.floor(minX / CRATER_CHUNK_SIZE);
+  const maxChunkX = Math.ceil(maxX / CRATER_CHUNK_SIZE);
+  for (let cx = minChunkX; cx <= maxChunkX; cx++) {
+    const id = `${cx}`;
+    if (!craterCache.has(id)) craterCache.set(id, generateChunkCraters(cx));
+  }
+  for (const [id] of craterCache) {
+    const cx = parseInt(id);
+    if (cx < minChunkX - 2 || cx > maxChunkX + 2) craterCache.delete(id);
+  }
+}
+
+// ===== MOUNTAIN RIDGE SYSTEM =====
+const MOUNTAIN_LAYERS = [
+  { parallax: 0.06, color: '#2e0e06', heightScale: 100 }, // far: darkest, tallest
+  { parallax: 0.16, color: '#4c1409', heightScale: 66 }, // mid
+  { parallax: 0.30, color: '#6e1c0b', heightScale: 33  }, // near: lighter, shorter
+];
+
+// Large offsets per layer so peaks don't line up across layers
+const MOUNTAIN_PHASE_OFFSETS = [0, 114, 267];
+
+function getMountainHeight(wx, layerIdx) {
+  const s = 0.010 + layerIdx * 0.004;
+  const p = MOUNTAIN_PHASE_OFFSETS[layerIdx];
+  let h = Math.sin((wx + p)         * s)               * 0.38
+         + Math.sin((wx + p * 1.61) * s * 2.1  + 1.3)  * 0.26
+         + Math.sin((wx + p * 2.41) * s * 4.7  + 2.8)  * 0.18
+         + Math.sin((wx + p * 3.73) * s * 9.3  + 0.5)  * 0.10
+         + Math.sin((wx + p * 5.83) * s * 17.1 + 3.9)  * 0.05
+         + 0.03;
+  return Math.max(0, h) * MOUNTAIN_LAYERS[layerIdx].heightScale;
+}
+
+function drawMountainLayer(ctx, layerIdx, stateX, canvasW, canvasH, landerScreenX, groundScreenY, scaleX, scaleY) {
+  const layer = MOUNTAIN_LAYERS[layerIdx];
+  if (groundScreenY - layer.heightScale * scaleY > canvasH) return; // entirely off-screen below
+  const step = 5;
+  ctx.fillStyle = layer.color;
+  ctx.beginPath();
+  ctx.moveTo(-step, groundScreenY);
+  for (let sx = -step; sx <= canvasW + step; sx += step) {
+    const wx = stateX * layer.parallax + (sx - landerScreenX) / scaleX;
+    ctx.lineTo(sx, groundScreenY - getMountainHeight(wx, layerIdx) * scaleY);
+  }
+  ctx.lineTo(canvasW + step, groundScreenY);
+  ctx.closePath();
+  ctx.fill();
+}
+
+// ===== SURFACE ROCK SYSTEM =====
+let rockCache = new Map();
+
+function generateChunkRocks(chunkX) {
+  const rocks = [];
+  const baseSeed = chunkX * 99991 + 77777;
+  const slotSize = 4;
+  const numSlots = Math.floor(CRATER_CHUNK_SIZE / slotSize);
+  for (let i = 0; i < numSlots; i++) {
+    const seed = baseSeed + i * 8191;
+    if (seededRandom(seed) > 0.32) continue;
+    const x  = chunkX * CRATER_CHUNK_SIZE + i * slotSize + seededRandom(seed + 1) * slotSize * 0.85;
+    const w  = seededRandom(seed + 2) * 1.3 + 0.3;
+    const h  = w * (0.35 + seededRandom(seed + 3) * 0.4);
+    const dark = seededRandom(seed + 4) > 0.5;
+    rocks.push({ x, w, h, dark });
+  }
+  return rocks;
+}
+
+function updateRocks(cameraX, canvasW) {
+  const visibleWidth = canvasW / 8 + 100;
+  const minChunkX = Math.floor((cameraX - visibleWidth / 2) / CRATER_CHUNK_SIZE);
+  const maxChunkX = Math.ceil( (cameraX + visibleWidth / 2) / CRATER_CHUNK_SIZE);
+  for (let cx = minChunkX; cx <= maxChunkX; cx++) {
+    const id = `${cx}`;
+    if (!rockCache.has(id)) rockCache.set(id, generateChunkRocks(cx));
+  }
+  for (const [id] of rockCache) {
+    const cx = parseInt(id);
+    if (cx < minChunkX - 2 || cx > maxChunkX + 2) rockCache.delete(id);
+  }
+}
+
+// ===== DUST PARTICLE SYSTEM =====
+let dustParticles = [];
+let dustLandingTriggered = false;
+
+function spawnDust(worldX, worldY, count, speedScale) {
+  for (let i = 0; i < count; i++) {
+    const angle = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.5;
+    const speed = (Math.random() * 5 + 2) * speedScale;
+    dustParticles.push({
+      x:      worldX + (Math.random() - 0.5) * 3,
+      y:      worldY,
+      vx:     Math.cos(angle) * speed,
+      vy:     Math.abs(Math.sin(angle)) * speed * 0.7 + 0.5,
+      alpha:  0.4 + Math.random() * 0.4,
+      size:   Math.random() * 2.5 + 0.8,
+      age:    0,
+      maxAge: 0.9 + Math.random() * 1.4,
+    });
+  }
+}
+
 // render loop - runs at 60 FPS while physics runs independently at high frequency
 function update() {
   if (!ctx) {
@@ -614,10 +869,19 @@ function update() {
     return;
   }
 
+  // Sync canvas resolution to its display size
+  const canvas = ctx.canvas;
+  const cw = canvas.clientWidth || 1200;
+  const ch = canvas.clientHeight || 800;
+  if (canvas.width !== cw || canvas.height !== ch) {
+    canvas.width = cw;
+    canvas.height = ch;
+  }
+
   if (!gameStarted || !pyodide) {
     // Clear canvas to black when not started
     ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, 1200, 800);
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
     requestAnimationFrame(update);
     return;
   }
@@ -630,62 +894,205 @@ function update() {
     cameraX = state.x;
     cameraY = state.y;
 
+    // Lander is always centered on screen — canvas size determines how much world is visible
+    const landerScreenX = canvas.width / 2;
+    const landerScreenY = canvas.height / 2;
+
+    // Fixed physics scale: 8 pixels per meter (never changes with resize)
+    const scaleX = 8;
+    const scaleY = 8;
+
     // Update stars for infinite scrolling
-    updateStars(cameraX, cameraY);
-
-    // Lander is always centered on screen
-    const landerScreenX = 600;  // Center of 1200px canvas
-    const landerScreenY = 400;  // Center of 800px canvas
-
-    // Scaling constants
-    const scaleX = 8;  // 8 pixels per meter horizontally
-    const scaleY = 8;  // 8 pixels per meter vertically
-
-    // debug: log state occasionally
-    if (Math.random() < 0.01) {
-      console.log(`Lander: x=${state.x.toFixed(1)}m, alt=${state.y.toFixed(1)}m, vx=${state.vx.toFixed(2)}m/s, vy=${state.vy.toFixed(2)}m/s`);
-    }
+    updateStars(cameraX, cameraY, canvas.width, canvas.height);
 
     // Clear canvas
     ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, 1200, 800);
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     // Draw ALL background stars with parallax on both axes
-    ctx.fillStyle = "#fff";
-    for (const [chunkId, chunkStars] of starCache) {
-      chunkStars.forEach(star => {
-        // Both X and Y have same parallax scaling for zoom effect
-        const offsetX = (star.x - cameraX) * scaleX * star.parallax;
-        const offsetY = (star.y - cameraY) * scaleY * star.parallax;
-        const starScreenX = landerScreenX + offsetX;
-        const starScreenY = landerScreenY - offsetY;
-
-        // Draw all stars
-        ctx.beginPath();
-        ctx.arc(starScreenX, starScreenY, star.size, 0, Math.PI * 2);
-        ctx.fill();
-      });
+    // Stars fade out below 600m and are gone by 200m
+    const starAlpha = Math.max(0, Math.min(1, (state.y - 200) / 400));
+    if (starAlpha > 0) {
+      ctx.fillStyle = `rgba(255, 255, 255, ${starAlpha})`;
+      for (const [chunkId, chunkStars] of starCache) {
+        chunkStars.forEach(star => {
+          const offsetX = (star.x - cameraX) * scaleX * star.parallax;
+          const offsetY = (star.y - cameraY) * scaleY * star.parallax;
+          const starScreenX = landerScreenX + offsetX;
+          const starScreenY = landerScreenY - offsetY;
+          ctx.beginPath();
+          ctx.arc(starScreenX, starScreenY, star.size, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      }
     }
 
     // Calculate ground position
     const groundScreenY = landerScreenY - ((0 - cameraY) * scaleY);  // Ground is at y=0
 
-    // Draw filled ground surface
-    ctx.fillStyle = "#3a3a3a";  // Dark gray lunar surface
-    ctx.fillRect(0, groundScreenY, 1200, 800 - groundScreenY);
+    // Mars atmospheric haze — pure space above 1000m, dusty orange haze near surface
+    {
+      const atmosFactor = Math.max(0, Math.min(1, 1 - state.y / 1000));
+      if (atmosFactor > 0.005) {
+        const haze = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        haze.addColorStop(0,   `rgba(200, 90, 35, ${0.40 * atmosFactor})`);
+        haze.addColorStop(1,   `rgba(220, 110, 45, ${0.60 * atmosFactor})`);
+        ctx.fillStyle = haze;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+    }
+
+    // Draw mountain ridge silhouettes (back to front, parallax)
+    for (let li = 0; li < MOUNTAIN_LAYERS.length; li++) {
+      drawMountainLayer(ctx, li, state.x, canvas.width, canvas.height, landerScreenX, groundScreenY, scaleX, scaleY);
+    }
+
+    // Draw filled ground surface (gradient for depth)
+    const groundGrad = ctx.createLinearGradient(0, groundScreenY, 0, groundScreenY + 120);
+    groundGrad.addColorStop(0,   '#c84a22');
+    groundGrad.addColorStop(0.2, '#b54020');
+    groundGrad.addColorStop(1,   '#8a2e14');
+    ctx.fillStyle = groundGrad;
+    ctx.fillRect(0, groundScreenY, canvas.width, canvas.height - groundScreenY);
 
     // Draw world center line (x=0 in physics coordinates)
-    ctx.fillStyle = "rgba(100, 100, 100, 0.3)";
+    ctx.fillStyle = "rgba(200, 80, 30, 0.3)";
     const centerLineX = landerScreenX + ((0 - cameraX) * scaleX);
-    ctx.fillRect(centerLineX - 1, groundScreenY, 2, 800 - groundScreenY);
+    ctx.fillRect(centerLineX - 1, groundScreenY, 2, canvas.height - groundScreenY);
 
-    // Draw lander at center of screen
+    // Draw Mars craters (dark semi-ellipses into the ground)
+    updateCraters(cameraX, canvas.width);
+    for (const [, craters] of craterCache) {
+      for (const crater of craters) {
+        const cx = landerScreenX + ((crater.x - cameraX) * scaleX);
+        const cy = groundScreenY;
+        const rw = crater.radius * scaleX;
+        const rh = rw * 0.55; // shallow bowl
+        if (cx + rw < 0 || cx - rw > canvas.width) continue;
+
+        ctx.fillStyle = '#3a0a02';
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, rw, rh, 0, 0, Math.PI); // bottom half only
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+
+    // Draw landing target zone
+    if (currentLevel && currentLevel.target != null) {
+      const tx = currentLevel.target.x;
+      const tsx = landerScreenX + ((tx - cameraX) * scaleX);
+      const tsy = groundScreenY;
+      const tr  = 10 * scaleX; // 10 m radius in pixels
+
+      if (tsx + tr > 0 && tsx - tr < canvas.width) {
+        ctx.save();
+
+        // Soft radial glow above ground
+        const glow = ctx.createRadialGradient(tsx, tsy, 0, tsx, tsy, tr);
+        glow.addColorStop(0,   'rgba(0, 255, 80, 0.10)');
+        glow.addColorStop(0.6, 'rgba(0, 255, 80, 0.05)');
+        glow.addColorStop(1,   'rgba(0, 255, 80, 0)');
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(tsx, tsy, tr, Math.PI, 0);
+        ctx.closePath();
+        ctx.fill();
+
+        // Ground zone highlight strip
+        const strip = ctx.createLinearGradient(tsx - tr, 0, tsx + tr, 0);
+        strip.addColorStop(0,   'rgba(0, 200, 60, 0)');
+        strip.addColorStop(0.15,'rgba(0, 200, 60, 0.25)');
+        strip.addColorStop(0.5, 'rgba(0, 220, 80, 0.35)');
+        strip.addColorStop(0.85,'rgba(0, 200, 60, 0.25)');
+        strip.addColorStop(1,   'rgba(0, 200, 60, 0)');
+        ctx.fillStyle = strip;
+        ctx.fillRect(tsx - tr, tsy, tr * 2, 5);
+
+        // Outer edge ticks (L-brackets)
+        ctx.strokeStyle = '#0f0';
+        ctx.lineWidth = 1.5;
+        const tk = 10; // tick size px
+        // Left bracket
+        ctx.beginPath();
+        ctx.moveTo(tsx - tr + tk, tsy);
+        ctx.lineTo(tsx - tr, tsy);
+        ctx.lineTo(tsx - tr, tsy - tk * 2);
+        ctx.stroke();
+        // Right bracket
+        ctx.beginPath();
+        ctx.moveTo(tsx + tr - tk, tsy);
+        ctx.lineTo(tsx + tr, tsy);
+        ctx.lineTo(tsx + tr, tsy - tk * 2);
+        ctx.stroke();
+
+        // Center diamond
+        const ds = 5;
+        ctx.fillStyle = '#0f0';
+        ctx.beginPath();
+        ctx.moveTo(tsx,      tsy - ds * 2);
+        ctx.lineTo(tsx + ds, tsy - ds);
+        ctx.lineTo(tsx,      tsy);
+        ctx.lineTo(tsx - ds, tsy - ds);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.restore();
+      }
+    }
+
+    // Draw lander at center of screen (scaled down to 65%)
     ctx.save();
     ctx.translate(landerScreenX, landerScreenY);
-    ctx.rotate(state.angle);  // Rotate by current angle
+    ctx.rotate(state.angle);
+    ctx.scale(0.65, 0.65);
 
-    // Check if crashed
+    // Check if crashed or landed successfully
     const crashed = state.crashed || false;
+    const landedSafely = state.landed_safely || false;
+
+    // Show success overlay only when transitioning from not landed to landed
+    if (landedSafely && !previousLandedState) {
+      previousLandedState = true;
+      const totalVelocity = Math.sqrt(state.vx**2 + state.vy**2);
+      document.getElementById('successStats').innerHTML = `
+        Landed at ${totalVelocity.toFixed(2)} m/s<br>
+        Position: ${state.x.toFixed(1)} m<br>
+        Fuel remaining: ${state.fuel.toFixed(3)} kg
+      `;
+      document.getElementById('successOverlay').style.display = 'flex';
+    }
+
+    // Missed target — show failure overlay once
+    if ((state.missed_target || false) && !previousLandedState) {
+      previousLandedState = true;
+      const tx = currentLevel?.target?.x ?? 0;
+      const overshoot = (Math.abs(state.x - tx) - 10).toFixed(1);
+      const dir = state.x > tx ? 'right' : 'left';
+      document.getElementById('failureTitle').textContent = 'MISSED!';
+      document.getElementById('failureStats').innerHTML =
+        `Landed ${overshoot}m too far ${dir}<br>` +
+        `Position: ${state.x.toFixed(1)}m &nbsp;|&nbsp; Target: ±10m of ${tx.toFixed(0)}m`;
+      document.getElementById('failureOverlay').style.display = 'flex';
+    }
+
+    // Crash — show failure overlay once (after explosion animation)
+    if (crashed && crashTime === null) {
+      crashTime = Date.now();
+    }
+    if (crashed && crashTime !== null && !previousLandedState) {
+      const timeSinceCrash = (Date.now() - crashTime) / 1000;
+      if (timeSinceCrash >= 1.0) {
+        previousLandedState = true;
+        const totalVelocity = Math.sqrt(state.vx**2 + state.vy**2);
+        document.getElementById('failureTitle').textContent = 'CRASH!';
+        document.getElementById('failureStats').innerHTML =
+          `Impact velocity: ${totalVelocity.toFixed(2)} m/s<br>` +
+          `Position: ${state.x.toFixed(1)}m`;
+        document.getElementById('failureOverlay').style.display = 'flex';
+      }
+    }
+    if (!crashed) crashTime = null;
 
     // Only draw RCS and throttle effects if not crashed
     if (!crashed) {
@@ -893,24 +1300,24 @@ function update() {
 
     ctx.restore();
 
-    // Draw telemetry text
+    // Draw telemetry text (compact)
     ctx.fillStyle = "#0f0";
-    ctx.font = "18px monospace";
-    ctx.fillText(`X: ${state.x.toFixed(1)} m`, 20, 30);
-    ctx.fillText(`Alt: ${state.y.toFixed(1)} m`, 20, 55);
-    ctx.fillText(`Vx: ${state.vx.toFixed(2)} m/s`, 20, 80);
-    ctx.fillText(`Vy: ${state.vy.toFixed(2)} m/s`, 20, 105);
-    ctx.fillText(`Angle: ${(state.angle * 180 / Math.PI).toFixed(1)}°`, 20, 130);
-    ctx.fillText(`ω: ${state.angular_velocity.toFixed(2)} rad/s`, 20, 155);
+    ctx.font = "12px monospace";
+    ctx.fillText(`X: ${state.x.toFixed(1)} m`, 10, 20);
+    ctx.fillText(`Alt: ${state.y.toFixed(1)} m`, 10, 36);
+    ctx.fillText(`Vx: ${state.vx.toFixed(2)} m/s`, 10, 52);
+    ctx.fillText(`Vy: ${state.vy.toFixed(2)} m/s`, 10, 68);
+    ctx.fillText(`Angle: ${(state.angle * 180 / Math.PI).toFixed(1)}°`, 10, 84);
+    ctx.fillText(`ω: ${state.angular_velocity.toFixed(2)} rad/s`, 10, 100);
     const throttlePercent = ((state.throttle || 0) * 100).toFixed(0);
-    ctx.fillText(`Throttle: ${throttlePercent}%`, 20, 180);
+    ctx.fillText(`Throttle: ${throttlePercent}%`, 10, 116);
 
     // Draw time warp indicator
     const timeWarp = state.time_warp || 1.0;
     if (timeWarp !== 1.0) {
       ctx.fillStyle = "#ff0";
-      ctx.font = "bold 20px monospace";
-      ctx.fillText(`Time: ${timeWarp.toFixed(1)}x`, 20, 230);
+      ctx.font = "bold 13px monospace";
+      ctx.fillText(`Time: ${timeWarp.toFixed(1)}x`, 10, 140);
     }
 
     // Draw fuel with color coding
@@ -918,13 +1325,167 @@ function update() {
     const initialFuel = state.initial_fuel || 0.5;
     const fuelPercent = (fuelKg / initialFuel) * 100;
     if (fuelPercent > 30) {
-      ctx.fillStyle = "#0f0";  // Green when fuel is good
+      ctx.fillStyle = "#0f0";
     } else if (fuelPercent > 10) {
-      ctx.fillStyle = "#ff0";  // Yellow when low
+      ctx.fillStyle = "#ff0";
     } else {
-      ctx.fillStyle = "#f00";  // Red when critical
+      ctx.fillStyle = "#f00";
     }
-    ctx.fillText(`Fuel: ${fuelKg.toFixed(3)} kg (${fuelPercent.toFixed(0)}%)`, 20, 205);
+    ctx.fillText(`Fuel: ${fuelKg.toFixed(3)} kg (${fuelPercent.toFixed(0)}%)`, 10, 132);
+
+    // Mini-map: always visible, anchored to bottom-right corner
+    {
+      const mapW = 190, mapH = 160;
+      const mapX = canvas.width - mapW - 10;
+      const mapY = canvas.height - mapH - 10;
+      const labelH = 14;
+      const pad = 8;
+      const innerX = mapX + pad;
+      const innerY = mapY + labelH + pad;
+      const innerW = mapW - pad * 2;
+      const innerH = mapH - labelH - pad * 2;
+
+      // Background + border
+      ctx.fillStyle = 'rgba(0, 10, 0, 0.88)';
+      ctx.fillRect(mapX, mapY, mapW, mapH);
+      ctx.strokeStyle = '#0f0';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(mapX, mapY, mapW, mapH);
+
+      // Label
+      ctx.fillStyle = '#0f0';
+      ctx.font = '10px monospace';
+      ctx.fillText('OVERVIEW', mapX + 5, mapY + 10);
+
+      // Scale is fixed to the level's starting conditions
+      const startY   = currentLevel ? currentLevel.scenario.y : Math.max(state.y, 300);
+      const startX   = currentLevel ? currentLevel.scenario.x : state.x;
+      const targetX  = (currentLevel && currentLevel.target != null) ? currentLevel.target.x : null;
+
+      const maxAlt = startY * 1.25;
+      const aspect = innerW / innerH;
+      const hRange = maxAlt * aspect;
+      const worldX0 = state.x - hRange / 2; // always centered on ship
+
+      const toMX = (wx) => innerX + ((wx - worldX0) / hRange) * innerW;
+      const toMY = (wy) => innerY + (1 - wy / maxAlt) * innerH;
+
+      // Clip to inner map area
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(innerX, innerY, innerW, innerH);
+      ctx.clip();
+
+      // Ground fill (Mars color in minimap)
+      const groundMY = toMY(0);
+      ctx.fillStyle = '#7a2810';
+      ctx.fillRect(innerX, groundMY, innerW, innerY + innerH - groundMY);
+
+      // Ground line
+      ctx.strokeStyle = '#0f0';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(innerX, groundMY);
+      ctx.lineTo(innerX + innerW, groundMY);
+      ctx.stroke();
+
+      // Predicted ballistic trajectory (no thrust assumed)
+      if (state.y > 0 && !state.crashed && !state.landed_safely) {
+        const g = 9.8;
+        const disc = state.vy * state.vy + 2 * g * state.y;
+        if (disc >= 0) {
+          const tImpact = (state.vy + Math.sqrt(disc)) / g;
+          const steps = 50;
+          ctx.strokeStyle = 'rgba(0, 200, 0, 0.4)';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([2, 3]);
+          ctx.beginPath();
+          let started = false;
+          for (let i = 0; i <= steps; i++) {
+            const t = (i / steps) * tImpact;
+            const px = state.x + state.vx * t;
+            const py = state.y + state.vy * t - 0.5 * g * t * t;
+            if (py < 0) break;
+            const pmx = toMX(px);
+            const pmy = toMY(py);
+            if (!started) { ctx.moveTo(pmx, pmy); started = true; }
+            else ctx.lineTo(pmx, pmy);
+          }
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      }
+
+      // Target landing marker
+      if (targetX != null) {
+        const tMX = toMX(targetX);
+        // Vertical tick on ground line
+        ctx.strokeStyle = '#ff0';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(tMX, groundMY - 7);
+        ctx.lineTo(tMX, groundMY + 3);
+        ctx.stroke();
+        // Small triangle pointing down to ground
+        ctx.fillStyle = '#ff0';
+        ctx.beginPath();
+        ctx.moveTo(tMX - 4, groundMY - 7);
+        ctx.lineTo(tMX + 4, groundMY - 7);
+        ctx.lineTo(tMX, groundMY - 1);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // Ship dot
+      const shipMX = toMX(state.x);
+      const shipMY = toMY(state.y);
+      ctx.fillStyle = '#0f0';
+      ctx.beginPath();
+      ctx.arc(shipMX, shipMY, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore(); // remove clip
+
+      // Off-screen edge indicators (drawn outside clip so they sit on the border)
+      const edgeArrow = (mx, my, color) => {
+        const s = 5; // arrow half-size
+        const pad = 4;
+        const clampY = Math.max(innerY + pad + s, Math.min(innerY + innerH - pad - s, my));
+        const clampX = Math.max(innerX + pad + s, Math.min(innerX + innerW - pad - s, mx));
+        ctx.fillStyle = color;
+        if (mx < innerX) {
+          ctx.beginPath();
+          ctx.moveTo(innerX - 1,     clampY);
+          ctx.lineTo(innerX + s + 1, clampY - s);
+          ctx.lineTo(innerX + s + 1, clampY + s);
+          ctx.closePath(); ctx.fill();
+        } else if (mx > innerX + innerW) {
+          ctx.beginPath();
+          ctx.moveTo(innerX + innerW + 1,     clampY);
+          ctx.lineTo(innerX + innerW - s - 1, clampY - s);
+          ctx.lineTo(innerX + innerW - s - 1, clampY + s);
+          ctx.closePath(); ctx.fill();
+        }
+        if (my < innerY) {
+          ctx.beginPath();
+          ctx.moveTo(clampX,     innerY - 1);
+          ctx.lineTo(clampX - s, innerY + s + 1);
+          ctx.lineTo(clampX + s, innerY + s + 1);
+          ctx.closePath(); ctx.fill();
+        } else if (my > innerY + innerH) {
+          ctx.beginPath();
+          ctx.moveTo(clampX,     innerY + innerH + 1);
+          ctx.lineTo(clampX - s, innerY + innerH - s - 1);
+          ctx.lineTo(clampX + s, innerY + innerH - s - 1);
+          ctx.closePath(); ctx.fill();
+        }
+      };
+
+      edgeArrow(shipMX, shipMY, '#0f0');
+      if (targetX != null) edgeArrow(toMX(targetX), toMY(0), '#ff0');
+
+    }
+
   }).catch(err => {
     console.error("Error in update loop:", err);
   }).finally(() => {

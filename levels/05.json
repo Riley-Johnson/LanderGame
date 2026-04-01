@@ -1,0 +1,16 @@
+{
+  "id": 5,
+  "name": "Level 5",
+  "description": "Come down faster and from higher than before",
+  "mode": "code",
+  "scenario": {
+    "x": -500,
+    "y": 1000,
+    "vx": 50,
+    "vy": -10,
+    "angle": 0,
+    "angularVelocity": 0,
+    "fuel": 5
+  },
+  "target": { "x": 0 }
+}

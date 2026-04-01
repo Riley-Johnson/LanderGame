@@ -100,10 +100,74 @@ body {
 }
 
 #blocklyDiv {
-  flex: 1;
-  width: 100%;
+  flex: 0 0 45%;
   height: 100%;
   background: #333;
+  min-width: 150px;
+}
+
+/* ===== HORIZONTAL RESIZER (between Blockly and right panel) ===== */
+#hResizer {
+  flex: 0 0 5px;
+  height: 100%;
+  background: #2a2a2a;
+  cursor: col-resize;
+  position: relative;
+  transition: background 0.15s;
+  z-index: 10;
+}
+
+#hResizer::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 1px;
+  height: 40px;
+  background: #555;
+  box-shadow: -2px 0 0 #555, 2px 0 0 #555;
+}
+
+#hResizer:hover, #hResizer.dragging {
+  background: #3a86ff55;
+}
+
+#hResizer:hover::after, #hResizer.dragging::after {
+  background: #3a86ff;
+  box-shadow: -2px 0 0 #3a86ff, 2px 0 0 #3a86ff;
+}
+
+/* ===== VERTICAL RESIZER (between game canvas and console) ===== */
+#vResizer {
+  flex: 0 0 5px;
+  width: 100%;
+  background: #2a2a2a;
+  cursor: row-resize;
+  position: relative;
+  transition: background 0.15s;
+  z-index: 10;
+}
+
+#vResizer::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  height: 1px;
+  width: 40px;
+  background: #555;
+  box-shadow: 0 -2px 0 #555, 0 2px 0 #555;
+}
+
+#vResizer:hover, #vResizer.dragging {
+  background: #3a86ff55;
+}
+
+#vResizer:hover::after, #vResizer.dragging::after {
+  background: #3a86ff;
+  box-shadow: 0 -2px 0 #3a86ff, 0 2px 0 #3a86ff;
 }
 
 /* ===== RIGHT PANEL: SIM + CONSOLE (STACKED VERTICALLY) ===== */
@@ -111,32 +175,34 @@ body {
   flex: 1;
   height: 100%;
   display: flex;
-  flex-direction: column;   /* <-- THIS STACKS VERTICALLY */
+  flex-direction: column;
   overflow: hidden;
+  min-width: 0;
 }
 
 /* ===== SIMULATION TOP 2/3 ===== */
 #gameContainer {
   flex: 1.6;
+  min-height: 80px;
   background: #000;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  border-bottom: 2px solid #333;
 }
 
 #game {
-  max-width: 100%;
-  max-height: 100%;
+  width: 100%;
+  height: 100%;
+  display: block;
   background: #000;
-  border: 1px solid #444;
   image-rendering: pixelated;
 }
 
 /* ===== CONSOLE BOTTOM 1/3 ===== */
 #consoleContainer {
-  flex: 1;                  /* 1/3 of right panel */
+  flex: 1;
+  min-height: 40px;
   display: flex;
   flex-direction: column;
   background: #1e1e1e;
@@ -206,7 +272,7 @@ body {
 #tutorialButton {
   position: absolute;
   top: 10px;
-  right: 195px;
+  right: 188px;
   z-index: 20;
   padding: 8px 16px;
   background: #555;
@@ -215,7 +281,6 @@ body {
   border-radius: 6px;
   cursor: pointer;
   font-weight: bold;
-  font-size: 18px;
 }
 
 #tutorialButton:hover {
@@ -472,4 +537,142 @@ body {
 .warpButton.active {
   background: #3a86ff;
   border-color: #3a86ff;
+}
+
+/* ===== FAILURE OVERLAY ===== */
+#failureOverlay {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: rgba(0, 0, 0, 0.9);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+#failureContainer {
+  background: #1a0000;
+  border: 3px solid #f00;
+  border-radius: 15px;
+  padding: 50px;
+  text-align: center;
+  animation: failurePop 0.4s ease-out;
+  min-width: 320px;
+}
+
+@keyframes failurePop {
+  0%   { transform: scale(0.5); opacity: 0; }
+  70%  { transform: scale(1.05); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+#failureContainer h1 {
+  margin: 0 0 16px 0;
+  font-size: 64px;
+  color: #f00;
+  text-shadow: 0 0 24px #f00;
+}
+
+#failureContainer p {
+  font-size: 16px;
+  color: #aaa;
+  margin: 8px 0 30px 0;
+  line-height: 1.6;
+}
+
+#failureButtons {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+#tryAgainButton {
+  padding: 12px 36px;
+  background: #c00;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: bold;
+  font-size: 16px;
+  transition: background 0.15s;
+}
+
+#tryAgainButton:hover { background: #e00; }
+
+#failureMenuButton {
+  padding: 12px 24px;
+  background: #444;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: background 0.15s;
+}
+
+#failureMenuButton:hover { background: #555; }
+
+/* ===== SUCCESS OVERLAY ===== */
+#successOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.9);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+#successContainer {
+  background: #222;
+  border: 3px solid #0f0;
+  border-radius: 15px;
+  padding: 50px;
+  text-align: center;
+  animation: successPop 0.5s ease-out;
+}
+
+@keyframes successPop {
+  0% {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+#successContainer h1 {
+  margin: 0 0 20px 0;
+  font-size: 64px;
+  color: #0f0;
+  text-shadow: 0 0 20px #0f0;
+}
+
+#successContainer p {
+  font-size: 18px;
+  color: #aaa;
+  margin: 10px 0;
+}
+
+#successOkButton {
+  margin-top: 30px;
+  padding: 12px 40px;
+  background: #0f0;
+  color: #000;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: bold;
+  font-size: 18px;
+}
+
+#successOkButton:hover {
+  background: #0c0;
 }

@@ -1,0 +1,16 @@
+{
+  "id": 4,
+  "name": "Level 4",
+  "description": "Spinning out of control, must land straight below",
+  "mode": "code",
+  "scenario": {
+    "x": 0,
+    "y": 500,
+    "vx": 0,
+    "vy": -10,
+    "angle": 0,
+    "angularVelocity": 10,
+    "fuel": 0.5
+  },
+  "target": { "x": 0 }
+}

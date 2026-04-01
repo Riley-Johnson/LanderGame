@@ -1,8 +1,8 @@
 {
-  "id": 2,
-  "name": "Level 2",
-  "description": "Now you're moving sideways. Kill the horizontal velocity and land manually.",
-  "mode": "manual",
+  "id": 3,
+  "name": "Level 3",
+  "description": "Same horizontal approach as Level 2. Now automate it with code.",
+  "mode": "code",
   "scenario": {
     "x": -50,
     "y": 100,

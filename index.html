@@ -42,6 +42,27 @@
       </div>
     </div>
 
+    <!-- Failure Overlay -->
+    <div id="failureOverlay">
+      <div id="failureContainer">
+        <h1 id="failureTitle">CRASH!</h1>
+        <p id="failureStats"></p>
+        <div id="failureButtons">
+          <button id="tryAgainButton">Try Again</button>
+          <button id="failureMenuButton">Menu</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Success Overlay -->
+    <div id="successOverlay">
+      <div id="successContainer">
+        <h1>Success!</h1>
+        <p id="successStats"></p>
+        <button id="successOkButton">OK</button>
+      </div>
+    </div>
+
     <button id="runButton">Run Code</button>
     <button id="menuButton">Menu</button>
     <button id="tutorialButton">📖</button>
@@ -55,10 +76,12 @@
     </div>
     <input type="file" id="fileInput" accept=".json" style="display: none;">
     <div id="blocklyDiv"></div>
+    <div id="hResizer"></div>
     <div id="rightPanel">
       <div id="gameContainer">
         <canvas id="game" width="1200" height="800"></canvas>
       </div>
+      <div id="vResizer"></div>
       <div id="consoleContainer">
         <div id="consoleHeader">
           Console Output
@@ -75,6 +98,6 @@
 
     <!-- Load our logic -->
     <script src="blocks.js?v=17"></script>
-    <script src="main.js?v=48"></script>
+    <script src="main.js?v=53"></script>
   </body>
 </html>

@@ -1,8 +1,8 @@
 {
-  "id": 1,
-  "name": "Level 1",
-  "description": "Same drop as Level 0, but now write the code to land automatically. No manual control.",
-  "mode": "code",
+  "id": 0,
+  "name": "Level 0",
+  "description": "Get a feel for the controls. Land manually using W/S/A/D. No code required.",
+  "mode": "manual",
   "scenario": {
     "x": 0,
     "y": 100,
