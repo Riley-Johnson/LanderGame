@@ -49,22 +49,6 @@ Blockly.defineBlocksWithJsonArray([
     "tooltip": "Get rotational speed in rad/s (+ = CCW)"
   },
   {
-    "type": "wait_seconds",
-    "message0": "wait %1 seconds",
-    "args0": [
-      {
-        "type": "field_number",
-        "name": "SECONDS",
-        "value": 1,
-        "min": 0
-      }
-    ],
-    "previousStatement": null,
-    "nextStatement": null,
-    "colour": 290,
-    "tooltip": "Wait for specified number of seconds"
-  },
-  {
     "type": "is_first_timestep",
     "message0": "is first timestep",
     "output": "Boolean",

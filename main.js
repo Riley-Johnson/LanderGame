@@ -139,9 +139,6 @@ async function init() {
         <category name="Variables" colour="330" custom="VARIABLE"></category>
         <category name="Functions" colour="290" custom="PROCEDURE"></category>
         <category name="Time" colour="190">
-          <block type="wait_seconds">
-            <field name="SECONDS">1</field>
-          </block>
           <block type="is_first_timestep"></block>
           <block type="get_time"></block>
         </category>
