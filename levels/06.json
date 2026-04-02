@@ -1,0 +1,16 @@
+{
+  "id": 6,
+  "name": "Level 6",
+  "description": "This level is very hard",
+  "mode": "code",
+  "scenario": {
+    "x": -2000,
+    "y": 1600,
+    "vx": 200,
+    "vy": -10,
+    "angle": -30,
+    "angularVelocity": 0.3,
+    "fuel": 5
+  },
+  "target": { "x": 0 }
+}
