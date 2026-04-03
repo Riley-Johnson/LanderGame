@@ -1,0 +1,16 @@
+{
+  "id": 7,
+  "name": "Level 7",
+  "description": "Good luck :)",
+  "mode": "code",
+  "scenario": {
+    "x": -500,
+    "y": 100,
+    "vx": 30,
+    "vy": 0,
+    "angle": -30,
+    "angularVelocity": 0.3,
+    "fuel": 5
+  },
+  "target": { "x": 0 }
+}
